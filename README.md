@@ -1,3 +1,24 @@
-# GYEOL
-퇴근 후나 주말에 볼·읽을 콘텐츠를 고르느라 시간만 보내는 2030 멀티미디어 감상자가 오늘의 기분·보유 플랫폼·대표 인생작을 고르면, 태그 매칭 규칙으로 책·영화·드라마·웹툰 중 딱 맞는 작품과 바로 열람 가능한 공식 플랫폼 링크를 30초 안에 연결해 주는 웹 서비스.
-Google AI Studio 링크: https://aistudio.google.com/apps/3ec2f1b6-90dd-4db5-bebf-f6e4d47f87f1?showPreview=true&showAssistant=true
+# GYEOL (결)
+
+취향·상황·분위기 기반 크로스미디어(책·영화·드라마·웹툰) 큐레이션 & 감상처 연결 서비스.
+
+- 기획: [`PRD.md`](./PRD.md) · 디자인 명세: [`디자인.md`](./디자인.md)
+- 스택: Next.js (App Router) + TypeScript, 순수 CSS 토큰(라이트/다크), Vercel 배포
+
+## 로컬 실행
+
+```bash
+npm install
+npm run dev   # http://localhost:3000
+```
+
+## 현재 상태 (MVP 1차)
+
+- 첫 화면: 히어로 · 매체 필터 · 세부 조건/플랫폼 · 기분·상황 큐레이션 · 인생작 크로스오버 · 추천 결과 · 보관함(브라우저 저장)
+- 추천은 `lib/data.ts`의 시험용 작품 목록과 규칙 기반 점수로 동작합니다 (AI 추천·외부 메타데이터는 후속 단계).
+- `/pricing`: 요금제 화면 (월 ₩1,000 / 연 ₩10,000). 결제(Groble) 연결 전이라 버튼은 `준비 중`입니다.
+- 로그인·클라우드 동기화·결제는 아직 구현 전입니다.
+
+## Vercel 배포
+
+저장소를 Vercel에서 Import하면 Framework Preset이 Next.js로 자동 인식됩니다. 별도 환경 변수는 아직 필요하지 않습니다.
