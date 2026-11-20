@@ -15,6 +15,13 @@ type GeminiResponse = {
 
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
 
+/** Gemini 3 계열은 기본 생각(thinking) 시간이 길어 응답이 늦어지므로 낮춰서 요청합니다. */
+function withModelTuning(model: string, body: unknown): unknown {
+  if (!model.startsWith("gemini-3") || typeof body !== "object" || body === null) return body;
+  const b = body as { generationConfig?: Record<string, unknown> };
+  return { ...b, generationConfig: { ...(b.generationConfig ?? {}), thinkingConfig: { thinkingLevel: "low" } } };
+}
+
 async function callModel(model: string, body: unknown, timeoutMs: number): Promise<{ ok: true; data: GeminiResponse } | { ok: false; status: number; detail: string }> {
   const key = process.env.GEMINI_API_KEY as string;
   let status = 500;
@@ -24,7 +31,7 @@ async function callModel(model: string, body: unknown, timeoutMs: number): Promi
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify(body),
+        body: JSON.stringify(withModelTuning(model, body)),
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (res.ok) return { ok: true, data: (await res.json()) as GeminiResponse };
@@ -62,7 +69,7 @@ async function post(body: unknown, timeoutMs: number): Promise<GeminiResponse> {
 const textOf = (r: GeminiResponse) => r.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
 
 /** 스키마를 따르는 JSON 응답을 받습니다. */
-export async function generateJson(prompt: string, schema: unknown, timeoutMs = 25000): Promise<unknown> {
+export async function generateJson(prompt: string, schema: unknown, timeoutMs = 40000): Promise<unknown> {
   const r = await post({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", responseSchema: schema } }, timeoutMs);
   const text = textOf(r).trim();
   if (!text) throw new AiError(502, "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.");
