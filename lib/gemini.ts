@@ -1,4 +1,4 @@
-export const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+export const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
 export class AiError extends Error {
   constructor(public status: number, message: string, public code: "NO_KEY" | "FAILED" = "FAILED") {
@@ -13,7 +13,7 @@ type GeminiResponse = {
   }[];
 };
 
-const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite";
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
 
 async function callModel(model: string, body: unknown, timeoutMs: number): Promise<{ ok: true; data: GeminiResponse } | { ok: false; status: number; detail: string }> {
   const key = process.env.GEMINI_API_KEY as string;

@@ -29,8 +29,8 @@ npm run dev   # http://localhost:3000
 | 이름 | 설명 |
 | :--- | :--- |
 | `GEMINI_API_KEY` | AI 추천 · 취향 분석 · 감상처 확인 |
-| `GEMINI_MODEL` | 사용할 모델 ID (기본 `gemini-2.5-flash`) |
-| `GEMINI_FALLBACK_MODEL` | 기본 모델이 없거나 혼잡할 때 쓸 보조 모델 (기본 `gemini-2.5-flash-lite`) |
+| `GEMINI_MODEL` | 사용할 모델 ID (기본 `gemini-3.6-flash`) |
+| `GEMINI_FALLBACK_MODEL` | 기본 모델이 없거나 혼잡할 때 쓸 보조 모델 (기본 `gemini-3.8-flash`) |
 | `TMDB_API_KEY` | (선택) 영화·드라마 포스터 조회용 TMDB 무료 API 키. 있으면 가장 먼저 사용 |
 | `COVER_EXTENDED_SOURCES` | 표지 조회 확장 출처(예스24·알라딘 검색 페이지 파싱, IMDb 비공식 검색, 네이버웹툰 비공식 API) 사용 여부. 기본 `on`(무료 서비스 단계), 유료 결제를 열 때는 `off` |
 
