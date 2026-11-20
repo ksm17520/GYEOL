@@ -259,3 +259,32 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
     };
   } catch { return null; }
 }
+
+const norm = (v: string) => v.toLowerCase().replace(/[\s'"‘’“”·:：,.!?\-–—_()[\]]+/g, "");
+
+/**
+ * 보관함에 저장된 제목·연도로 TMDB 작품 번호를 찾습니다. 제목이 같고(저장된 제목·원제·영문 제목 중 하나) 연도가 ±1년 이내일 때만 인정해 엉뚱한 작품과 섞이지 않게 합니다.
+ * 연도가 저장돼 있지 않으면 제목이 정확히 같은 가장 인기 있는 작품을 고릅니다.
+ */
+export async function findScreenId(kind: ScreenKind, title: string, year: string, alt: string[] = []): Promise<number | null> {
+  if (!key()) return null;
+  const path = kind === "film" ? "movie" : "tv";
+  const parts = title.split(/\s+[-–]\s+/).map((x) => x.replace(/^['"‘“]+|['"’”]+$/g, "").trim()).filter(Boolean);
+  const queries = Array.from(new Set([title, ...parts, ...alt].map((x) => x.trim()).filter(Boolean))).slice(0, 4);
+  const wanted = new Set(queries.map(norm));
+  const y0 = Number(year) || 0;
+  for (const q of queries) {
+    try {
+      const d = (await getJson(`${TMDB}/search/${path}?api_key=${encodeURIComponent(key() as string)}&language=ko-KR&include_adult=false&query=${encodeURIComponent(q)}`, {}, 3500)) as {
+        results?: { id: number; title?: string; name?: string; original_title?: string; original_name?: string; release_date?: string; first_air_date?: string; popularity?: number }[];
+      };
+      const hits = (d.results ?? []).slice(0, 10).filter((r) => [r.title, r.name, r.original_title, r.original_name].some((n) => n && wanted.has(norm(n))));
+      const ok = hits.filter((r) => {
+        const y = Number((r.release_date || r.first_air_date || "").slice(0, 4)) || 0;
+        return !y0 || !y || Math.abs(y - y0) <= 1;
+      }).sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
+      if (ok[0]) return ok[0].id;
+    } catch { /* 다음 검색어 */ }
+  }
+  return null;
+}

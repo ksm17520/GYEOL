@@ -27,6 +27,8 @@ type Ctx = ArchiveStore & {
   addHistory: (s: Omit<HistorySession, "id" | "createdAt">) => void;
   removeHistory: (id: string) => void;
   setTasteProfile: (p: TasteProfile | null) => void;
+  /** 보관함의 영화·드라마 감독·출연진·분량·상영/방영 상태를 TMDB 정보로 갱신합니다(12시간에 한 번). */
+  syncScreenInfo: () => Promise<void>;
   exportJson: () => string;
   importJson: (raw: string) => { ok: boolean; error?: string };
 };
@@ -58,6 +60,9 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const lastWritten = useRef<string | null>(null);
+  const storeRef = useRef<ArchiveStore>(EMPTY_STORE);
+  const syncing = useRef(false);
+  storeRef.current = store;
 
   useEffect(() => {
     setStore(loadStore());
@@ -122,6 +127,37 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
     setStore((p) => ({ ...p, bookmarks: p.bookmarks.map((b) => (b.key === key ? { ...b, verifiedAccess: access, updatedAt: now() } : b)) }));
   }, []);
 
+  const syncScreenInfo = useCallback(async () => {
+    if (syncing.current) return;
+    const STALE = 12 * 60 * 60 * 1000;
+    const targets = storeRef.current.bookmarks.filter((b) => (b.item.media === "film" || b.item.media === "drama") && !(b.screenSyncedAt && Date.now() - Date.parse(b.screenSyncedAt) < STALE));
+    if (targets.length === 0) return;
+    syncing.current = true;
+    try {
+      for (let i = 0; i < targets.length; i += 10) {
+        const chunk = targets.slice(i, i + 10);
+        let results: ({ creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string } | null)[];
+        try {
+          const res = await fetch("/api/works/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: chunk.map((b) => ({ media: b.item.media, title: b.item.title, year: b.item.releaseYear, originalTitle: b.item.originalTitle, englishTitle: b.item.englishTitle })) }) });
+          if (!res.ok) break;
+          results = ((await res.json()) as { results?: typeof results }).results ?? [];
+        } catch { break; }
+        const stamp = new Date().toISOString();
+        setStore((p) => ({
+          ...p,
+          bookmarks: p.bookmarks.map((b) => {
+            const idx = chunk.findIndex((c) => c.key === b.key);
+            if (idx < 0) return b;
+            const r = results[idx];
+            if (!r) return { ...b, screenSyncedAt: stamp }; // 못 찾은 작품은 저장된 값을 그대로 두고, 12시간 뒤 다시 시도
+            const it = b.item;
+            return { ...b, screenSyncedAt: stamp, item: { ...it, creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.characters.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus } };
+          }),
+        }));
+      }
+    } finally { syncing.current = false; }
+  }, []);
+
   const removeBookmark = useCallback((key: string) => {
     setStore((p) => ({ ...p, bookmarks: p.bookmarks.filter((b) => b.key !== key) }));
   }, []);
@@ -167,8 +203,8 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<Ctx>(
-    () => ({ ...store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, exportJson, importJson }),
-    [store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, exportJson, importJson],
+    () => ({ ...store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncScreenInfo, exportJson, importJson }),
+    [store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncScreenInfo, exportJson, importJson],
   );
 
   return (

@@ -23,6 +23,8 @@ export type Bookmark = {
   rating: number; // 0 = 미평가, 1~5
   memo: string;
   verifiedAccess?: VerifiedAccess;
+  /** 영화·드라마의 감독·상태를 TMDB 정보로 마지막으로 갱신한 시각 */
+  screenSyncedAt?: string;
   savedAt: string;
   updatedAt: string;
 };
@@ -101,7 +103,7 @@ export function sanitizeStore(raw: unknown): ArchiveStore {
       seen.add(key);
       const status = STATUSES.find((s) => s === b.status) ?? "want";
       const rating = typeof b.rating === "number" && b.rating >= 0 && b.rating <= 5 ? Math.round(b.rating) : 0;
-      bookmarks.push({ key, item, status, rating, memo: str(b.memo, 1000), verifiedAccess: sanitizeAccess(b.verifiedAccess), savedAt: iso(b.savedAt), updatedAt: iso(b.updatedAt) });
+      bookmarks.push({ key, item, status, rating, memo: str(b.memo, 1000), verifiedAccess: sanitizeAccess(b.verifiedAccess), screenSyncedAt: typeof b.screenSyncedAt === "string" && !Number.isNaN(Date.parse(b.screenSyncedAt)) ? b.screenSyncedAt : undefined, savedAt: iso(b.savedAt), updatedAt: iso(b.updatedAt) });
     }
   }
   const favoriteSeeds: FavoriteSeed[] = [];

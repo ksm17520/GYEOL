@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { TopBar } from "@/components/TopBar";
 import { useArchive } from "@/app/providers";
 import { WorkDetailModal } from "@/components/WorkDetailModal";
@@ -26,6 +26,10 @@ export default function ArchivePage() {
   const [seedWhy, setSeedWhy] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 보관함을 열 때 영화·드라마의 감독·상태를 최신 TMDB 정보로 갱신합니다.
+  const { ready, syncScreenInfo } = a;
+  useEffect(() => { if (ready) void syncScreenInfo(); }, [ready, syncScreenInfo]);
 
   const items = a.bookmarks.filter((b) => (status === "all" || b.status === status) && (media === "all" || b.item.media === media));
 
