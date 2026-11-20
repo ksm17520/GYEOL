@@ -12,11 +12,16 @@ export type WebtoonCandidate = {
   coverImageUrl: string | null;
   /** 완결 여부. 플랫폼이 알려 준 경우에만 true/false, 모르면 undefined */
   finished?: boolean;
+  /** 분위기 해시태그·소개(카카오웹툰 상세에서 읽음). AI가 분위기로 고르는 데 씁니다. */
+  tags?: string[];
+  synopsis?: string;
+  /** 플랫폼 인기 지표(카카오페이지 조회수). 같은 플랫폼 안에서 앞에 오게 하는 데만 씁니다. */
+  popularity?: number;
   /** 플랫폼별 작품 번호(완결 확인용). 화면에는 쓰지 않습니다. */
   pids?: Partial<Record<WebtoonPlatform, string>>;
 };
 
-type Raw = { title: string; creator: string; genre: string; platform: WebtoonPlatform; cover: string | null; pid?: string; done?: boolean };
+type Raw = { title: string; creator: string; genre: string; platform: WebtoonPlatform; cover: string | null; pid?: string; done?: boolean; pop?: number };
 
 /** 카카오 검색에서 잘 통하는 장르·분위기 낱말. AI는 제목이 아니라 이 중에서 고릅니다. */
 export const WEBTOON_KEYWORDS = ["로맨스", "로맨스 판타지", "판타지", "액션", "스릴러", "미스터리", "드라마", "일상", "힐링", "개그", "무협", "학원", "SF", "공포", "감성", "성장"];
@@ -25,9 +30,9 @@ export const FALLBACK_KEYWORDS = ["드라마", "로맨스", "스릴러", "판타
 async function kakaoPage(keyword: string, finishedOnly: boolean): Promise<Raw[]> {
   try {
     const d = (await getJson(`https://bff-page.kakao.com/api/gateway/api/v2/search/series?keyword=${encodeURIComponent(keyword)}&category_uid=10&is_complete=${finishedOnly}&sort_type=ACCURACY&page=0&size=25`, { headers: { ...KAKAO_HEADERS, Referer: "https://page.kakao.com/" } }, 4000)) as {
-      result?: { list?: { series_id?: number; title?: string; category?: string; sub_category?: string; authors?: string }[] };
+      result?: { list?: { series_id?: number; title?: string; category?: string; sub_category?: string; authors?: string; service_property?: { view_count?: number } }[] };
     };
-    return (d.result?.list ?? []).filter((x) => x.title && x.category === "웹툰").map((x) => ({ title: x.title as string, creator: String(x.authors ?? ""), genre: String(x.sub_category ?? ""), platform: "카카오페이지" as const, cover: null, pid: String(x.series_id ?? ""), done: finishedOnly ? true : undefined }));
+    return (d.result?.list ?? []).filter((x) => x.title && x.category === "웹툰").sort((a, b) => (b.service_property?.view_count ?? 0) - (a.service_property?.view_count ?? 0)).map((x) => ({ title: x.title as string, creator: String(x.authors ?? ""), genre: String(x.sub_category ?? ""), platform: "카카오페이지" as const, cover: null, pid: String(x.series_id ?? ""), done: finishedOnly ? true : undefined, pop: x.service_property?.view_count }));
   } catch { return []; }
 }
 
@@ -57,22 +62,28 @@ export function mergeCandidates(raws: Raw[], limit = 40): WebtoonCandidate[] {
       if (!hit.coverImageUrl && r.cover) hit.coverImageUrl = r.cover;
       if (!hit.creator && r.creator) hit.creator = r.creator;
       if (!hit.genre && r.genre) hit.genre = r.genre;
+      if (r.pop && !hit.popularity) hit.popularity = r.pop;
       if (r.pid) hit.pids = { ...hit.pids, [r.platform]: r.pid };
       if (r.done !== undefined) hit.finished = hit.finished === true || r.done;
     } else if (out.length < limit) {
-      out.push({ id: "", title, creator: r.creator.slice(0, 100), genre: r.genre.slice(0, 30), platforms: [r.platform], coverImageUrl: r.cover, pids: r.pid ? { [r.platform]: r.pid } : undefined, finished: r.done });
+      out.push({ id: "", title, creator: r.creator.slice(0, 100), genre: r.genre.slice(0, 30), platforms: [r.platform], coverImageUrl: r.cover, pids: r.pid ? { [r.platform]: r.pid } : undefined, finished: r.done, popularity: r.pop });
     }
   }
   return out.map((c, i) => ({ ...c, id: `c${i + 1}` }));
 }
 
-/** 카카오웹툰 상세에서 완결 여부를 읽습니다(비공식). 읽지 못하면 undefined. */
-async function kakaoWebtoonFinished(id: string): Promise<boolean | undefined> {
+type KwDetail = { finished?: boolean; tags: string[]; synopsis: string };
+/** 카카오웹툰 상세에서 완결 여부·분위기 해시태그·소개를 읽습니다(비공식). 읽지 못하면 null. */
+async function kakaoWebtoonDetail(id: string): Promise<KwDetail | null> {
   try {
-    const d = (await getJson(`https://gateway-kw.kakao.com/decorator/v2/decorator/contents/${encodeURIComponent(id)}/profile`, { headers: { ...KAKAO_HEADERS, Referer: "https://webtoon.kakao.com/" } }, 3000)) as { data?: { badges?: { title?: string; type?: string }[] } };
+    const d = (await getJson(`https://gateway-kw.kakao.com/decorator/v2/decorator/contents/${encodeURIComponent(id)}/profile`, { headers: { ...KAKAO_HEADERS, Referer: "https://webtoon.kakao.com/" } }, 3000)) as { data?: { badges?: { title?: string; type?: string }[]; seoKeywords?: string[]; synopsis?: string } };
     const badges = d.data?.badges;
-    return Array.isArray(badges) ? badges.some((b) => b.type === "STATUS" && b.title === "COMPLETED") : undefined;
-  } catch { return undefined; }
+    return {
+      finished: Array.isArray(badges) ? badges.some((b) => b.type === "STATUS" && b.title === "COMPLETED") : undefined,
+      tags: (d.data?.seoKeywords ?? []).filter((t) => typeof t === "string").slice(0, 6),
+      synopsis: String(d.data?.synopsis ?? "").replace(/\s+/g, " ").slice(0, 80),
+    };
+  } catch { return null; }
 }
 
 /** 네이버웹툰 회차 목록 정보에서 완결 여부를 읽습니다(비공식). 읽지 못하면 undefined. */
@@ -83,18 +94,22 @@ async function naverFinished(id: string): Promise<boolean | undefined> {
   } catch { return undefined; }
 }
 
-/** 후보 중 완결 여부를 모르는 것은 각 플랫폼에서 확인합니다(작품당 한 번, 최대 36건). */
-async function fillFinished(list: WebtoonCandidate[]): Promise<void> {
-  let budget = 36;
+/**
+ * 후보에 상세 정보를 채웁니다(작품당 한 번, 최대 limit건): 카카오웹툰의 분위기 해시태그·소개·완결 여부, 네이버웹툰의 완결 여부.
+ * 요청이 늘어나므로 호출하는 쪽에서 대상 수를 제한합니다.
+ */
+async function fillDetails(list: WebtoonCandidate[], limit: number, needFinished: boolean): Promise<void> {
+  let budget = limit;
   await Promise.all(list.map(async (c) => {
-    if (c.finished === true || budget <= 0) return;
+    if (budget <= 0) return;
+    const kw = c.pids?.카카오웹툰, nv = c.pids?.네이버웹툰;
+    if (!kw && !(needFinished && nv && c.finished === undefined)) return;
     budget--;
-    const checks: Promise<boolean | undefined>[] = [];
-    if (c.pids?.카카오웹툰) checks.push(kakaoWebtoonFinished(c.pids.카카오웹툰));
-    if (c.pids?.네이버웹툰 && c.finished === undefined) checks.push(naverFinished(c.pids.네이버웹툰));
-    const r = await Promise.all(checks);
-    if (r.some((x) => x === true)) c.finished = true;
-    else if (c.finished === undefined && r.some((x) => x === false)) c.finished = false;
+    const [d, nf] = await Promise.all([kw ? kakaoWebtoonDetail(kw) : Promise.resolve(null), needFinished && nv && c.finished === undefined ? naverFinished(nv) : Promise.resolve(undefined)]);
+    if (d) { if (d.tags.length) c.tags = d.tags; if (d.synopsis) c.synopsis = d.synopsis; }
+    const fin = [d?.finished, nf];
+    if (fin.some((x) => x === true)) c.finished = true;
+    else if (c.finished === undefined && fin.some((x) => x === false)) c.finished = false;
   }));
 }
 
@@ -126,8 +141,12 @@ export async function gatherWebtoonCandidates(keywords: string[], opts: { finish
   let pool = mergeCandidates(raws, 200);
   if (wanted.length) pool = pool.filter((c) => c.platforms.some((p) => wanted.includes(p)));
   if (finishedOnly) {
-    await fillFinished(pool);
+    await fillDetails(pool, 36, true);
     pool = pool.filter((c) => c.finished === true);
+    return balance(pool, 40).map((c, i) => ({ ...c, id: `c${i + 1}` }));
   }
-  return balance(pool, 40).map((c, i) => ({ ...c, id: `c${i + 1}` }));
+  // 분위기 정보는 고른 후보 중 카카오웹툰 쪽 일부에만 채웁니다(응답 시간 때문에).
+  const picked = balance(pool, 40);
+  await fillDetails(picked, 14, false);
+  return picked.map((c, i) => ({ ...c, id: `c${i + 1}` }));
 }

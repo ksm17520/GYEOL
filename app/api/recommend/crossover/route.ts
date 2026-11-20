@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   if (!parsed) return NextResponse.json({ error: "최소 1개 이상의 인생작을 입력해 주세요.", code: "BAD" }, { status: 400 });
   try {
     const cands = await webtoonPool(parsed.media, parsed.filters, parsed.seeds.map((s) => `${s.title}${s.whyLiked ? `(${s.whyLiked})` : ""}`).join(" / "));
-    const raw = (await generateJson(crossoverPrompt(parsed, cands), crossoverSchema())) as Record<string, unknown>;
+    const raw = (await generateJson(crossoverPrompt(parsed, cands), crossoverSchema(), cands.length ? 35000 : undefined)) as Record<string, unknown>;
     const items = await verifyItems(parseItems(applyCandidates(raw.items, cands), "cross"));
     if (items.length === 0) throw new AiError(502, "추천 결과를 만들지 못했어요. 다시 시도해 주세요.");
     return NextResponse.json({

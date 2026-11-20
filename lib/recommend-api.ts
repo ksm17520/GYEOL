@@ -1,7 +1,6 @@
 import { MEDIA_LABEL, type Media } from "./data";
 import { sanitizeItem, normalizeMedia, itemKey, type RecItem } from "./item";
 import { FALLBACK_KEYWORDS, WEBTOON_KEYWORDS, gatherWebtoonCandidates, type WebtoonCandidate } from "./candidates";
-import { generateJson } from "./gemini";
 
 const ALL_MEDIA: Media[] = ["book", "film", "drama", "webtoon"];
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
@@ -118,32 +117,39 @@ ${candidateBlock(cands)}${RULES}`;
 /** 웹툰 후보 목록을 프롬프트에 넣을 글로 만듭니다. 목록이 비어 있으면 빈 문자열(기존 방식). */
 export function candidateBlock(c: WebtoonCandidate[]): string {
   if (c.length === 0) return "";
-  const lines = c.map((x) => `${x.id} | ${x.title} | ${x.genre || "장르 미상"} | ${x.creator || "작가 미상"} | ${x.platforms.join("·")}`).join("\n");
+  const lines = c.map((x) => `${x.id} | ${x.title} | ${x.genre || "장르 미상"} | ${x.creator || "작가 미상"} | ${x.platforms.join("·")}${x.tags?.length ? ` | ${x.tags.join(" ")}` : ""}${x.synopsis ? ` | ${x.synopsis}` : ""}`).join("\n");
   return `[웹툰 후보 목록 — 지금 플랫폼에서 실제로 열람할 수 있는 작품]
-웹툰(webtoon)을 추천할 때는 반드시 아래 목록에서만 고르고, 고른 작품의 id를 candidateId에 그대로 적으세요. 목록에 없는 웹툰은 절대 추천하지 마세요. 특정 플랫폼의 작품만 몰아서 고르지 말고, 목록에 있는 여러 플랫폼의 작품을 고르게 섞으세요. title은 목록의 제목을 그대로 적으세요. 장르·작가 외의 줄거리는 아는 만큼만 쓰고, 확실하지 않으면 일반적인 분위기 설명으로 대신하세요.
-id | 제목 | 장르 | 작가 | 열람 플랫폼
+웹툰(webtoon)을 추천할 때는 반드시 아래 목록에서만 고르고, 고른 작품의 id를 candidateId에 그대로 적으세요. 목록에 없는 웹툰은 절대 추천하지 마세요. 특정 플랫폼의 작품만 몰아서 고르지 말고, 목록에 있는 여러 플랫폼의 작품을 고르게 섞으세요. title은 목록의 제목을 그대로 적으세요. 분위기 태그와 소개가 있는 작품은 그 정보로 사용자의 분위기에 맞는지 판단해 고르세요. 목록에 없는 줄거리는 아는 만큼만 쓰고, 확실하지 않으면 일반적인 분위기 설명으로 대신하세요.
+id | 제목 | 장르 | 작가 | 열람 플랫폼 | (있으면) 분위기 태그 | 소개
 ${lines}
 
 `;
 }
 
-/** 웹툰 후보를 찾는 데 쓸 장르·분위기 낱말을 AI가 고릅니다(제목이 아님). 실패하면 기본 낱말을 씁니다. */
-export async function pickWebtoonKeywords(context: string): Promise<string[]> {
-  try {
-    const raw = (await generateJson(
-      `웹툰을 검색할 장르·분위기 낱말을 아래 허용 목록에서 3개 골라 주세요. 작품 제목은 쓰지 마세요.\n허용 목록: ${WEBTOON_KEYWORDS.join(", ")}\n\n[사용자 요청]\n${context}`,
-      { type: "OBJECT", properties: { keywords: { type: "ARRAY", items: { type: "STRING" } } }, required: ["keywords"] },
-      12000,
-    )) as { keywords?: unknown };
-    const k = strs(raw.keywords, 4, 20).filter((x) => WEBTOON_KEYWORDS.includes(x));
-    return k.length ? k : FALLBACK_KEYWORDS;
-  } catch { return FALLBACK_KEYWORDS; }
+/** 분위기·상황 낱말 → 카카오·네이버 검색에 잘 통하는 장르 낱말(AI 호출 없이 규칙으로 고릅니다. 응답 시간을 아끼기 위해서입니다). */
+const KEYWORD_RULES: [RegExp, string[]][] = [
+  [/서늘|치밀|심리|내면|미스터리|추리/, ["스릴러", "미스터리"]],
+  [/따뜻|위로|잔잔|힐링|일상|편안/, ["힐링", "일상"]],
+  [/세계관|스케일|판타지|모험/, ["판타지", "액션"]],
+  [/여운|시적|감성|쓸쓸|서정/, ["감성", "드라마"]],
+  [/위트|경쾌|웃|개그|코믹|가볍/, ["개그", "일상"]],
+  [/도파민|강렬|액션|전개|짜릿/, ["액션", "스릴러"]],
+  [/청춘|성장|학원|학교/, ["학원", "성장"]],
+  [/로맨스|연애|사랑|설렘|연인/, ["로맨스"]],
+  [/공포|무서|오싹/, ["공포"]],
+  [/무협|협객/, ["무협"]],
+];
+export function pickWebtoonKeywords(context: string): string[] {
+  const out: string[] = [];
+  for (const [re, ks] of KEYWORD_RULES) if (re.test(context)) for (const k of ks) if (!out.includes(k) && WEBTOON_KEYWORDS.includes(k)) out.push(k);
+  for (const k of FALLBACK_KEYWORDS) if (out.length < 3 && !out.includes(k)) out.push(k);
+  return out.slice(0, 4);
 }
 
 /** 웹툰이 요청 매체에 있으면 실제 후보 목록을 모읍니다. 못 모으면 빈 목록(기존 방식으로 대체). */
 export async function webtoonPool(media: Media[], filters: ReqFilters, context: string): Promise<WebtoonCandidate[]> {
   if (!media.includes("webtoon")) return [];
-  const keywords = await pickWebtoonKeywords(context);
+  const keywords = pickWebtoonKeywords(context);
   return gatherWebtoonCandidates(keywords, { finishedOnly: filters.finishedOnly, wantedPlatforms: filters.platforms });
 }
 

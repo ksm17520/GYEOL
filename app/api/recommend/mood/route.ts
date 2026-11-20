@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   if (!parsed) return NextResponse.json({ error: "분위기, 상황, 요청 문장 중 하나 이상을 입력해 주세요.", code: "BAD" }, { status: 400 });
   try {
     const cands = await webtoonPool(parsed.media, parsed.filters, [...parsed.moods, parsed.situation, parsed.freeText].filter(Boolean).join(" / "));
-    const raw = (await generateJson(moodPrompt(parsed, cands), moodSchema())) as Record<string, unknown>;
+    const raw = (await generateJson(moodPrompt(parsed, cands), moodSchema(), cands.length ? 35000 : undefined)) as Record<string, unknown>;
     const items = await verifyItems(parseItems(applyCandidates(raw.items, cands), "rec"));
     if (items.length === 0) throw new AiError(502, "추천 결과를 만들지 못했어요. 다시 시도해 주세요.");
     return NextResponse.json({
