@@ -22,7 +22,6 @@ export function TopBar({ active, onMode, showTheme = true }: { active: NavId; on
         <nav className="nav" aria-label="주요 메뉴">
           {item("curation", "큐레이션", "/", "mood")}
           {item("crossover", "인생작 매칭", "/?mode=crossover", "crossover")}
-          {item("archive", "보관함", "/archive")}
           {item("profile", "취향 프로필", "/profile")}
         </nav>
         <div className="utils">
