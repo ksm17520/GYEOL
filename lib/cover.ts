@@ -265,9 +265,10 @@ export async function resolveCoverUrl(t: CoverTarget): Promise<string | null> {
   const intl = Array.from(new Set([t.englishTitle, t.originalTitle, t.title].filter((x): x is string => Boolean(x))));
   let raw: string | null = null;
   if (t.media === "book") {
-    // 예스24 Open API(제목·저자가 맞는 책만). 예스24·알라딘 검색 화면의 첫 결과는 제목 확인 없이 쓰이므로 책에서도 뺐습니다.
+    // 예스24 Open API(제목·저자가 맞는 책만). 키가 있으면 예스24에 없는 책에 Open Library·아이튠즈·위키백과의 비슷한 다른 책 표지가 붙지 않도록 다른 출처는 쓰지 않습니다.
+    // 예스24·알라딘 검색 화면의 첫 결과는 제목 확인 없이 쓰이므로 책에서도 뺐습니다.
     raw = (await yes24Cover(t.title, t.creator)) ||
-      (await openLibrary(t.englishTitle || t.originalTitle || t.title)) || (await itunes([t.title, t.englishTitle ?? ""], "ebook")) || (await wikipedia([`${t.title} ${t.creator}`.trim(), t.title]));
+      (process.env.Yes24_API_Key?.trim() ? null : (await openLibrary(t.englishTitle || t.originalTitle || t.title)) || (await itunes([t.title, t.englishTitle ?? ""], "ebook")) || (await wikipedia([`${t.title} ${t.creator}`.trim(), t.title])));
   } else if (t.media === "film") {
     raw = (await tmdb(t, "film")) || (EXTENDED_SOURCES ? (await imdb(t, "film")) || (await naverPoster(t.title, "film")) : null) || (await itunes([t.title, t.englishTitle ?? ""], "movie")) || (await wikipedia([`${t.title} 영화`, t.englishTitle || t.title]));
   } else if (t.media === "drama") {
