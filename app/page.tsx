@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { TopBar } from "@/components/TopBar";
+import { useArchive } from "./providers";
+import { useTheme } from "@/lib/theme";
 import { MEDIA_LABEL, MEDIA_STAMP, MOODS, SITUATIONS, WORKS, type Media, type MoodId, type SituationId, type Work } from "@/lib/data";
 import { GROUP_LABEL, PLATFORMS, PLATFORM_BY_ID, type PlatformGroup } from "@/lib/platforms";
 import {
@@ -20,7 +23,8 @@ function safeSet(key: string, value: string) {
 }
 
 export default function Home() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const { theme, toggle: toggleTheme } = useTheme();
+  const arch = useArchive();
   const [mode, setMode] = useState<Mode>("mood");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -36,37 +40,12 @@ export default function Home() {
   const [results, setResults] = useState<Result[] | null>(null);
   const [headline, setHeadline] = useState("");
   const [note, setNote] = useState("");
-  const [saved, setSaved] = useState<string[]>([]);
   const [bannerOpen, setBannerOpen] = useState(true);
   const workspace = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    const t = document.documentElement.dataset.theme;
-    if (t === "dark" || t === "light") setTheme(t);
-    try {
-      const raw = safeGet("gyeol-saved");
-      if (raw) {
-        const parsed: unknown = JSON.parse(raw);
-        if (Array.isArray(parsed)) setSaved(parsed.filter((x): x is string => typeof x === "string"));
-      }
-    } catch { /* 손상된 저장값은 무시 */ }
     if (safeGet("gyeol-banner") === "closed") setBannerOpen(false);
   }, []);
-
-  function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.dataset.theme = next;
-    safeSet("gyeol-theme", next);
-  }
-
-  function toggleSaved(id: string) {
-    setSaved((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      safeSet("gyeol-saved", JSON.stringify(next));
-      return next;
-    });
-  }
 
   function pickMedia(m: Media | "all") {
     setFilters((f) => {
@@ -90,27 +69,29 @@ export default function Home() {
     return names.length > 0 ? `선택한 플랫폼(${names.join(" · ")})에서 볼 수 있는 작품을 우선 연결했어요.` : "원하는 플랫폼은 '세부 조건 · 플랫폼'에서 고르면 우선 추천에 반영돼요.";
   }
 
-  function showResults(r: Result[], title: string, extra: string) {
+  function showResults(r: Result[], title: string, extra: string, summary: string, kind: Mode) {
     setResults(r);
     setHeadline(title);
     setNote(`${extra} ${platformNote()}`);
+    if (r.length > 0) arch.addHistory({ mode: kind, querySummary: summary, headline: title, workIds: r.map((x) => x.work.id) });
     setTimeout(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
   function submitMood() {
     const r = recommendByMood({ moods, situation, text, filters });
     const sit = SITUATIONS.find((s) => s.id === situation)?.label;
-    showResults(r, headlineFor(moods), [sit ? `상황: ${sit}.` : "", moods.length ? `분위기 ${moods.length}개를 반영했어요.` : ""].filter(Boolean).join(" "));
+    const summary = [moods.map((m) => MOODS.find((x) => x.id === m)?.label).filter(Boolean).join(", "), sit, text.trim().slice(0, 60)].filter(Boolean).join(" / ");
+    showResults(r, headlineFor(moods), [sit ? `상황: ${sit}.` : "", moods.length ? `분위기 ${moods.length}개를 반영했어요.` : ""].filter(Boolean).join(" "), summary, "mood");
   }
 
   function submitFav() {
     const r = recommendByFavorite({ title: favTitle, media: favMedia, reasons: favReasons, filters });
-    showResults(r, `「${favTitle.trim()}」의 결을 닮은 다른 매체의 작품들`, `${MEDIA_LABEL[favMedia]} 외 다른 매체에서 골랐어요.`);
+    showResults(r, `「${favTitle.trim()}」의 결을 닮은 다른 매체의 작품들`, `${MEDIA_LABEL[favMedia]} 외 다른 매체에서 골랐어요.`, `인생작 「${favTitle.trim()}」(${MEDIA_LABEL[favMedia]})`, "crossover");
   }
 
   function crossover(work: Work) {
     const r = recommendByFavorite({ title: work.title, media: work.media, reasons: [], filters });
-    showResults(r, `「${work.title}」에서 이어지는 다른 매체의 작품들`, `${MEDIA_LABEL[work.media]} 외 다른 매체에서 골랐어요.`);
+    showResults(r, `「${work.title}」에서 이어지는 다른 매체의 작품들`, `${MEDIA_LABEL[work.media]} 외 다른 매체에서 골랐어요.`, `「${work.title}」에서 이어 보기`, "crossover");
   }
 
   function goPanel(m: Mode) {
@@ -119,23 +100,38 @@ export default function Home() {
   }
 
   const filterCount = activeFilterCount(filters);
-  const savedCount = useMemo(() => saved.filter((id) => WORKS.some((w) => w.id === id)).length, [saved]);
+
+  // 다른 화면에서 넘어온 요청(?mode, ?seed, ?prompt, ?restore)을 한 번만 반영
+  const handledParams = useRef(false);
+  useEffect(() => {
+    if (handledParams.current || !arch.ready) return;
+    handledParams.current = true;
+    const q = new URLSearchParams(window.location.search);
+    const seed = q.get("seed");
+    const prompt = q.get("prompt");
+    const restore = q.get("restore");
+    if (q.get("mode") === "crossover" || seed) setMode("crossover");
+    if (seed) {
+      const s = arch.favoriteSeeds.find((x) => x.id === seed);
+      if (s) { setFavTitle(s.title); setFavMedia(s.media); setFavReasons([s.whyLiked, "", ""]); }
+    }
+    if (prompt) { setMode("mood"); setText(prompt.slice(0, 500)); }
+    if (restore) {
+      const h = arch.history.find((x) => x.id === restore);
+      if (h) {
+        const found = h.workIds.flatMap((id) => WORKS.filter((w) => w.id === id).map((work) => ({ work, score: 0 })));
+        setMode(h.mode);
+        setResults(found);
+        setHeadline(h.headline);
+        setNote("이전 큐레이션 기록을 다시 불러왔어요.");
+      }
+    }
+    if (q.toString()) window.history.replaceState(null, "", window.location.pathname);
+  }, [arch.ready, arch.favoriteSeeds, arch.history]);
 
   return (
     <>
-      <header className="topbar">
-        <div className="wrap topbar-row">
-          <div className="logo font-editorial">GYEOL · 결</div>
-          <nav className="nav" aria-label="주요 메뉴">
-            <button className={mode === "mood" ? "active" : ""} onClick={() => goPanel("mood")}>큐레이션</button>
-            <button className={mode === "crossover" ? "active" : ""} onClick={() => goPanel("crossover")}>인생작 매칭</button>
-          </nav>
-          <div className="utils">
-            <Link className="link" href="/pricing">프리미엄</Link>
-            <span className="btn-dark">내 보관함 ({savedCount})</span>
-          </div>
-        </div>
-      </header>
+      <TopBar active={mode === "mood" ? "curation" : "crossover"} onMode={goPanel} showTheme={false} />
 
       <main>
         <section className="wrap hero">
@@ -262,7 +258,7 @@ export default function Home() {
               ) : (
                 <div className="cards">
                   {results.map(({ work }) => (
-                    <Card key={work.id} work={work} prefer={filters.platforms} saved={saved.includes(work.id)} onSave={() => toggleSaved(work.id)} onCross={() => crossover(work)} />
+                    <Card key={work.id} work={work} prefer={filters.platforms} saved={arch.isBookmarked(work.id)} onSave={() => arch.toggleBookmark(work.id)} onCross={() => crossover(work)} />
                   ))}
                 </div>
               )}

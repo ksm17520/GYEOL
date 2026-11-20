@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { TopBar } from "@/components/TopBar";
 
 export const metadata = { title: "요금제 · GYEOL (결)" };
 
@@ -7,12 +7,7 @@ const COMMON = ["기분·상황 / 인생작 추천", "작품 상세·감상처 �
 export default function PricingPage() {
   return (
     <>
-      <header className="topbar">
-        <div className="wrap topbar-row">
-          <Link href="/" className="logo font-editorial">GYEOL · 결</Link>
-          <div className="utils"><Link className="link" href="/">← 큐레이션으로</Link></div>
-        </div>
-      </header>
+      <TopBar active="pricing" />
       <main className="wrap pricing">
         <div className="mono" style={{ color: "var(--text-muted)" }}>PLANS &amp; SUBSCRIPTION</div>
         <h1 className="font-editorial">나에게 맞는 이용 방식</h1>

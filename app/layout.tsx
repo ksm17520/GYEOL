@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ArchiveProvider } from "./providers";
 
 export const metadata: Metadata = {
   title: "GYEOL (결) — 취향·상황·분위기 큐레이션 아카이브",
@@ -24,7 +25,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <ArchiveProvider>{children}</ArchiveProvider>
+      </body>
     </html>
   );
 }
