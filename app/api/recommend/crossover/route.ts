@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { aiErrorBody, AiError, generateJson } from "@/lib/gemini";
 import { verifyItems } from "@/lib/verify";
 import { rateLimited } from "@/lib/ratelimit";
-import { applyCandidates, crossoverPrompt, crossoverSchema, parseCrossoverRequest, parseItems, webtoonPool } from "@/lib/recommend-api";
+import { applyCandidates, applyScreenCandidates, screenPool, crossoverPrompt, crossoverSchema, parseCrossoverRequest, parseItems, webtoonPool } from "@/lib/recommend-api";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,9 +18,10 @@ export async function POST(req: Request) {
   const parsed = parseCrossoverRequest(body);
   if (!parsed) return NextResponse.json({ error: "최소 1개 이상의 인생작을 입력해 주세요.", code: "BAD" }, { status: 400 });
   try {
-    const cands = await webtoonPool(parsed.media, parsed.filters, parsed.seeds.map((s) => `${s.title}${s.whyLiked ? `(${s.whyLiked})` : ""}`).join(" / "));
-    const raw = (await generateJson(crossoverPrompt(parsed, cands), crossoverSchema(), cands.length ? 35000 : undefined)) as Record<string, unknown>;
-    const items = await verifyItems(parseItems(applyCandidates(raw.items, cands), "cross"));
+    const ctx = parsed.seeds.map((s) => `${s.title}${s.whyLiked ? `(${s.whyLiked})` : ""}`).join(" / ");
+    const [cands, screen] = await Promise.all([webtoonPool(parsed.media, parsed.filters, ctx), screenPool(parsed.media, parsed.filters, ctx)]);
+    const raw = (await generateJson(crossoverPrompt(parsed, cands, screen), crossoverSchema(), cands.length || screen.length ? 35000 : undefined)) as Record<string, unknown>;
+    const items = await verifyItems(parseItems(await applyScreenCandidates(applyCandidates(raw.items, cands), screen), "cross"));
     if (items.length === 0) throw new AiError(502, "추천 결과를 만들지 못했어요. 다시 시도해 주세요.");
     return NextResponse.json({
       sharedDnaTitle: typeof raw.sharedDnaTitle === "string" && raw.sharedDnaTitle ? raw.sharedDnaTitle.slice(0, 200) : "매체를 잇는 서사의 결",

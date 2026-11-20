@@ -33,6 +33,8 @@ export type RecItem = {
   source: "ai" | "sample";
   /** 외부 출처(서점·TMDB 등)에서 실제 작품으로 확인되었는지. AI 추천에만 서버가 채웁니다. */
   verified?: boolean;
+  /** 영화·드라마: 지금 한국 OTT에서 볼 수 없으면 "discontinued"(서비스가 중단된 콘텐츠) */
+  availability?: "available" | "discontinued";
 };
 
 export const itemKey = (i: { media: Media; title: string }) => `${i.media}::${i.title.trim().toLowerCase()}`;
@@ -84,6 +86,7 @@ export function sanitizeItem(raw: unknown, fallbackId: string, source: "ai" | "s
     accentTone: tone,
     source: raw.source === "sample" ? "sample" : source,
     verified: raw.verified === true ? true : undefined,
+    availability: raw.availability === "discontinued" ? "discontinued" : raw.availability === "available" ? "available" : undefined,
   };
 }
 

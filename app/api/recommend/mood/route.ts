@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { aiErrorBody, AiError, generateJson } from "@/lib/gemini";
 import { verifyItems } from "@/lib/verify";
 import { rateLimited } from "@/lib/ratelimit";
-import { applyCandidates, webtoonPool, moodPrompt, moodSchema, parseItems, parseMoodRequest } from "@/lib/recommend-api";
+import { applyCandidates, applyScreenCandidates, screenPool, webtoonPool, moodPrompt, moodSchema, parseItems, parseMoodRequest } from "@/lib/recommend-api";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,9 +18,10 @@ export async function POST(req: Request) {
   const parsed = parseMoodRequest(body);
   if (!parsed) return NextResponse.json({ error: "분위기, 상황, 요청 문장 중 하나 이상을 입력해 주세요.", code: "BAD" }, { status: 400 });
   try {
-    const cands = await webtoonPool(parsed.media, parsed.filters, [...parsed.moods, parsed.situation, parsed.freeText].filter(Boolean).join(" / "));
-    const raw = (await generateJson(moodPrompt(parsed, cands), moodSchema(), cands.length ? 35000 : undefined)) as Record<string, unknown>;
-    const items = await verifyItems(parseItems(applyCandidates(raw.items, cands), "rec"));
+    const ctx = [...parsed.moods, parsed.situation, parsed.freeText].filter(Boolean).join(" / ");
+    const [cands, screen] = await Promise.all([webtoonPool(parsed.media, parsed.filters, ctx), screenPool(parsed.media, parsed.filters, ctx)]);
+    const raw = (await generateJson(moodPrompt(parsed, cands, screen), moodSchema(), cands.length || screen.length ? 35000 : undefined)) as Record<string, unknown>;
+    const items = await verifyItems(parseItems(await applyScreenCandidates(applyCandidates(raw.items, cands), screen), "rec"));
     if (items.length === 0) throw new AiError(502, "추천 결과를 만들지 못했어요. 다시 시도해 주세요.");
     return NextResponse.json({
       curationTitle: typeof raw.curationTitle === "string" && raw.curationTitle ? raw.curationTitle.slice(0, 200) : "오늘의 결에 맞춘 큐레이션",

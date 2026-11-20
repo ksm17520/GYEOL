@@ -15,7 +15,7 @@ export function RecCard({ item, prefer, saved, onSave, onCross, onOpen, onTrack 
     <article className="card">
       <Cover item={item} />
       <div className="rec-body">
-        <div className="meta"><b>{MEDIA_LABEL[item.media]}</b>{item.lengthInfo ? ` · ${item.lengthInfo}` : ""}{item.completionStatus ? ` · ${item.completionStatus}` : ""}{item.source === "ai" && !item.verified ? " · 출처 미확인" : ""}</div>
+        <div className="meta"><b>{MEDIA_LABEL[item.media]}</b>{item.lengthInfo ? ` · ${item.lengthInfo}` : ""}{item.completionStatus ? ` · ${item.completionStatus}` : ""}{item.source === "ai" && !item.verified ? " · 출처 미확인" : ""}{item.availability === "discontinued" ? " · 서비스가 중단된 콘텐츠" : ""}</div>
         <h3 className="font-editorial"><button className="title-btn" onClick={onOpen}>{item.title}</button></h3>
         <p className="by">{creator}</p>
         <p className="reason">{item.matchReason || item.logline}</p>

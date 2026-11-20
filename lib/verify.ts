@@ -2,6 +2,8 @@ import { findWebtoonOfficial, resolveCoverUrl } from "./cover";
 import { itemKey, type RecItem } from "./item";
 
 async function check(item: RecItem): Promise<RecItem> {
+  // 후보 목록(TMDB)에서 고른 영화·드라마는 표지까지 이미 채워져 있습니다.
+  if (item.verified && item.coverImageUrl) return item;
   // 후보 목록(플랫폼 검색)에서 고른 웹툰은 이미 확인됐으므로 표지만 채웁니다.
   if (item.media === "webtoon" && item.verified) {
     if (item.coverImageUrl) return item;

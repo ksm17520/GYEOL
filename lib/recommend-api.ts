@@ -1,5 +1,6 @@
 import { MEDIA_LABEL, type Media } from "./data";
 import { sanitizeItem, normalizeMedia, itemKey, type RecItem } from "./item";
+import { creditsOf, gatherScreenCandidates, koreaProviders, type ScreenCandidate } from "./screen-candidates";
 import { FALLBACK_KEYWORDS, WEBTOON_KEYWORDS, gatherWebtoonCandidates, trimSides, type WebtoonCandidate } from "./candidates";
 
 const ALL_MEDIA: Media[] = ["book", "film", "drama", "webtoon"];
@@ -75,7 +76,7 @@ const RULES = `[작품 제목 규칙 — 가장 중요]
 const mediaText = (m: Media[]) => m.map((x) => MEDIA_LABEL[x]).join(", ");
 const filterText = (f: ReqFilters) => `- 분량/호흡: ${LENGTH[f.length]}\n- 완결 여부: ${f.finishedOnly ? "반드시 완결된 작품 위주" : "완결 및 연재·방영 중 모두 포함"}\n- 시대: ${ERA[f.era]}\n- 이용 중인 플랫폼 우선 고려: ${f.platforms.length ? f.platforms.join(", ") : "전체 플랫폼"}`;
 
-export function moodPrompt(r: MoodRequest, cands: WebtoonCandidate[] = []): string {
+export function moodPrompt(r: MoodRequest, cands: WebtoonCandidate[] = [], screen: ScreenCandidate[] = []): string {
   return `당신은 한국 문화 콘텐츠(책, 영화, 드라마, 웹툰)에 정통한 에디토리얼 큐레이터입니다.
 실제로 존재하는 한국어 작품(또는 한국에 정식 번역·개봉·방영·출간된 해외 작품)만 정확하게 6편 추천해 주세요. 존재하지 않는 제목이나 작가를 절대 지어내지 마세요.
 
@@ -91,10 +92,10 @@ export function moodPrompt(r: MoodRequest, cands: WebtoonCandidate[] = []): stri
 [세부 필터]
 ${filterText(r.filters)}
 
-${candidateBlock(cands)}${RULES}`;
+${candidateBlock(cands)}${screenBlock(screen)}${RULES}`;
 }
 
-export function crossoverPrompt(r: CrossoverRequest, cands: WebtoonCandidate[] = []): string {
+export function crossoverPrompt(r: CrossoverRequest, cands: WebtoonCandidate[] = [], screen: ScreenCandidate[] = []): string {
   return `당신은 매체의 경계를 넘나드는 문화 비평가이자 큐레이터입니다.
 사용자가 입력한 '인생작'의 서사 구조, 감정적 결, 미학적 분위기, 주제 의식을 분석한 뒤, 그 결을 공유하는 다른 작품 6편을 추천해 주세요.
 실제로 존재하는 작품(한국 작품 또는 한국어 번역/개봉/방영작)만 추천하고 가상의 제목을 만들지 마세요.
@@ -111,7 +112,7 @@ ${filterText(r.filters)}
 
 각 작품의 crossoverBridge에 "인생작의 어떤 정서/서사와 연결되는지"를 구체적으로 설명하세요.
 
-${candidateBlock(cands)}${RULES}`;
+${candidateBlock(cands)}${screenBlock(screen)}${RULES}`;
 }
 
 /** 웹툰 후보 목록을 프롬프트에 넣을 글로 만듭니다. 목록이 비어 있으면 빈 문자열(기존 방식). */
@@ -170,6 +171,61 @@ export function applyCandidates(items: unknown, cands: WebtoonCandidate[]): unkn
   const isWt = (x: unknown) => isObj(x) && normalizeMedia(x.mediaType ?? x.media) === "webtoon";
   const kept = new Set<unknown>(trimSides(mapped.filter(isWt) as { recommendedPlatforms: string[] }[]));
   return mapped.filter((x) => !isWt(x) || kept.has(x));
+}
+
+/** 영화·드라마 후보 목록을 프롬프트에 넣을 글로 만듭니다. 목록이 비어 있으면 빈 문자열(기존 방식). */
+export function screenBlock(c: ScreenCandidate[]): string {
+  if (c.length === 0) return "";
+  const lines = c.map((x) => `${x.id} | ${x.title} | ${x.year} | ${x.genres || "장르 미상"} | ${x.availability === "available" ? x.otts.join("·") : "서비스 중단"} | ${x.overview}`).join("\n");
+  return `[영화·드라마 후보 목록 — 한국 OTT 제공 정보에서 찾은 실제 작품]
+영화(film)와 드라마(drama)를 추천할 때는 반드시 아래 목록에서만 고르고, 고른 작품의 id를 candidateId에 그대로 적으세요. 목록에 없는 영화·드라마는 절대 추천하지 마세요. title은 목록의 제목을 그대로 적고, 감독·배우·등장인물은 비워 두세요(서버가 채웁니다). 넷플릭스·티빙·웨이브·왓챠·쿠팡플레이·Apple TV+ 중 한 곳에 쏠리지 않게 여러 OTT의 작품을 고르게 섞으세요. '서비스 중단'은 지금 한국 OTT에서 볼 수 없는 작품이므로 영화·드라마 전체에서 최대 1편만, 정말 어울릴 때만 고르세요.
+id | 제목 | 연도 | 장르 | 시청 가능 OTT | 줄거리
+${lines}
+
+`;
+}
+
+/** 영화·드라마 후보를 모읍니다. 못 모으면 빈 목록(기존 방식으로 대체). */
+export async function screenPool(media: Media[], filters: ReqFilters, context: string): Promise<ScreenCandidate[]> {
+  const kinds = media.filter((m): m is "film" | "drama" => m === "film" || m === "drama");
+  if (kinds.length === 0) return [];
+  return gatherScreenCandidates(kinds, context, { era: filters.era, wantedOtts: filters.platforms });
+}
+
+const posterProxy = (u: string | null) => (u ? `/api/cover-proxy?url=${encodeURIComponent(u)}` : undefined);
+
+/**
+ * 영화·드라마 추천을 후보 목록으로 맞춥니다. candidateId가 목록에 있으면 제목·연도·표지·감독·출연진을 TMDB 정보로 바꾸고,
+ * 작품별 한국 제공 정보를 한 번 더 확인해 OTT를 정하며(볼 방법이 없으면 서비스 중단 표시), 없는 작품은 제외합니다.
+ * 볼 수 있는 작품을 앞에, 서비스 중단 작품은 뒤에 두고 최대 2편만 남깁니다. 해당 매체의 후보가 없으면 손대지 않습니다.
+ */
+export async function applyScreenCandidates(items: unknown, pool: ScreenCandidate[]): Promise<unknown> {
+  if (pool.length === 0 || !Array.isArray(items)) return items;
+  const by = new Map(pool.map((c) => [c.id, c]));
+  const kindsWithPool = new Set(pool.map((c) => c.kind));
+  const kindOf = (x: unknown) => (isObj(x) ? normalizeMedia(x.mediaType ?? x.media) : null);
+  const mapped = await Promise.all(items.map(async (x) => {
+    const m = kindOf(x);
+    if (!isObj(x) || (m !== "film" && m !== "drama") || !kindsWithPool.has(m)) return [x];
+    const c = by.get(clip(x.candidateId, 10));
+    if (!c || c.kind !== m) return [];
+    const [fresh, cr] = await Promise.all([koreaProviders(c.kind, c.tmdbId), creditsOf(c.kind, c.tmdbId)]);
+    const otts = fresh ? fresh.otts : c.otts;
+    const available = fresh ? fresh.any && (otts.length > 0 || c.availability === "available") : c.availability === "available";
+    const gone = !available || (otts.length === 0 && c.availability === "discontinued");
+    return [{
+      ...x, title: c.title, originalTitle: c.originalTitle || undefined, releaseYear: c.year, coverImageUrl: posterProxy(c.posterUrl), verified: true,
+      creator: cr?.creator ?? "", cast: cr?.cast ?? [], characters: cr?.characters ?? [],
+      // 작품별 제공 정보에 구독 OTT가 없으면 목록에 있던 OTT를 그대로 믿지 않습니다(구매·대여만 가능하면 유튜브 링크만).
+      recommendedPlatforms: gone ? ["유튜브"] : fresh ? (otts.length ? otts : ["유튜브"]) : c.otts,
+      availability: gone ? "discontinued" : "available",
+    }];
+  }));
+  const flat = mapped.flat();
+  const isGone = (x: unknown) => isObj(x) && x.availability === "discontinued";
+  let goneLeft = 2;
+  const keep = flat.filter((x) => !isGone(x) || goneLeft-- > 0);
+  return [...keep.filter((x) => !isGone(x)), ...keep.filter(isGone)];
 }
 
 const S = { type: "STRING" };
