@@ -337,7 +337,10 @@ export async function findScreenId(kind: ScreenKind, title: string, year: string
 export async function findScreen(kind: ScreenKind, title: string, year: string, alt: string[] = []): Promise<{ id: number | null; match: string }> {
   if (!key()) return { id: null, match: "no-key" };
   const path = kind === "film" ? "movie" : "tv";
-  const parts = title.split(/\s+[-–]\s+|\s*[:：]\s*/).map((x) => x.replace(/^['"‘“]+|['"’”]+$/g, "").trim()).filter(Boolean);
+  // TMDB 한글 제목은 "'슬로 호시스' - Slow Horses"처럼 한글·영문이 ' - '로 묶인 경우가 많아, 저장된 제목과 TMDB 제목 모두 같은 방식으로 쪼개 비교합니다.
+  const split = (t: string) => t.split(/\s+[-–]\s+|\s*[:：]\s*/).map((x) => x.replace(/^['"‘“]+|['"’”]+$/g, "").trim()).filter(Boolean);
+  const dash = (t: string) => t.split(/\s+[-–]\s+/).map((x) => x.replace(/^['"‘“]+|['"’”]+$/g, "").trim()).filter(Boolean);
+  const parts = split(title);
   const queries = Array.from(new Set([title, ...parts, ...alt].map((x) => x.trim()).filter(Boolean))).slice(0, 4);
   const wanted = new Set(queries.map(norm));
   const y0 = Number(year) || 0;
@@ -351,7 +354,7 @@ export async function findScreen(kind: ScreenKind, title: string, year: string, 
       const d = (await getJson(`${TMDB}/search/${path}?api_key=${encodeURIComponent(key() as string)}&language=ko-KR&include_adult=false&query=${encodeURIComponent(q)}`, {}, 3500)) as { results?: Hit[] };
       if (q === queries[0]) firstTop = (d.results ?? [])[0] ?? null;
       log.push(`"${q}"→${(d.results ?? []).slice(0, 3).map(label).join(" | ") || "결과 없음"}`);
-      const hits = (d.results ?? []).slice(0, 10).filter((r) => [r.title, r.name, r.original_title, r.original_name].some((n) => n && wanted.has(norm(n))));
+      const hits = (d.results ?? []).slice(0, 10).filter((r) => [r.title, r.name, r.original_title, r.original_name].some((n) => n && [n, ...dash(n)].some((v) => wanted.has(norm(v)))));
       const ok = hits.filter((r) => {
         const y = Number(yearOf(r)) || 0;
         return !y0 || !y || Math.abs(y - y0) <= 1;
@@ -364,7 +367,7 @@ export async function findScreen(kind: ScreenKind, title: string, year: string, 
   const top = firstTop as Hit | null;
   if (top && y0) {
     const w = norm(title);
-    const confusable = [top.title, top.name, top.original_title, top.original_name].some((n) => { const a = n ? norm(n) : ""; return a && a !== w && (a.includes(w) || w.includes(a)); });
+    const confusable = [top.title, top.name, top.original_title, top.original_name].some((n) => (n ? dash(n) : []).map(norm).some((a) => a && a !== w && (a.includes(w) || w.includes(a))));
     if (Number(yearOf(top)) === y0 && !confusable) return { id: top.id, match: `top ${label(top)}` };
     return { id: null, match: `none(저장 연도 ${y0}, 1위 ${label(top)}, ${confusable ? "제목 포함 관계라 제외" : Number(yearOf(top)) === y0 ? "" : "연도 불일치"}) ${log.join(" ; ")}` };
   }
