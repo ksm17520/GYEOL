@@ -28,6 +28,7 @@ function safeSet(key: string, value: string) {
 export default function Home() {
   const { theme, toggle: toggleTheme } = useTheme();
   const arch = useArchive();
+  const [heroFailed, setHeroFailed] = useState(false);
   const [mode, setMode] = useState<Mode>("mood");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -241,9 +242,14 @@ export default function Home() {
               <div><b>웹툰</b> · 네이버웹툰 · 카카오페이지</div>
             </div>
           </div>
-          <div className="fig" aria-hidden="true">
-            <ArchiveArt />
-            <div className="fig-scrim mono"><span>Fig. 01 — 취향의 결 아카이브</span><span>4 MEDIA · 10+ PLATFORMS</span></div>
+          <div className="fig">
+            {heroFailed ? (
+              <ArchiveArt />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="fig-img" src="/images/hero-archive.jpg" alt="책과 영화 아카이브가 놓인 큐레이션 서재" onError={() => setHeroFailed(true)} />
+            )}
+            <div className="fig-scrim mono"><span>Fig. 01 — 취향의 결 아카이브</span><span>4 MEDIA · 15+ PLATFORMS</span></div>
           </div>
         </section>
 
