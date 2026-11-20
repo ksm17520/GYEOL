@@ -9,7 +9,7 @@ Claude Code가 매번 가장 먼저 읽는 작업 규칙입니다. 문서 우선
 ## 2. 기술 스택
 - Next.js 15 App Router + React 19 + TypeScript, 일반 CSS(`app/globals.css`의 디자인 토큰, `data-theme`로 라이트/다크). Tailwind 사용 안 함.
 - 배포: Vercel. `main`에 push하면 자동 배포됩니다.
-- AI: Gemini REST API를 fetch로 호출(`lib/gemini.ts`). 키는 서버에서만 사용.
+- AI: Google Gemini(`lib/gemini.ts`)와 네이버 HyperCLOVA X(`lib/clova.ts`)를 REST로 호출하고, 실패하면 다음 제공자로 넘어갑니다. 키는 서버에서만 사용. 실시간 감상처 확인은 검색 근거가 필요해 Gemini 전용.
 - 보관함·취향 프로필: 브라우저 localStorage(`gyeol-archive-v2`). 로그인·기기 간 동기화는 아직 없음.
 - 결제: Groble 예정(미연동, 요금제 화면 CTA는 `준비 중`). 월간 ₩1,000 / 연간 ₩10,000.
 
@@ -24,6 +24,7 @@ Claude Code가 매번 가장 먼저 읽는 작업 규칙입니다. 문서 우선
 |---|---|
 | `GEMINI_API_KEY` | AI 추천 (없으면 샘플 데이터 기반 추천으로 대체) |
 | `GEMINI_MODEL` | 기본 `gemini-3.6-flash` |
+| `CLOVASTUDIO_API_KEY` | (선택) 네이버 CLOVA Studio(HyperCLOVA X). 있으면 Gemini 실패 시 이어서 사용 (`AI_PROVIDERS`로 순서 조정) |
 | `TMDB_API_KEY` | 영화·드라마 포스터 (선택) |
 | `COVER_EXTENDED_SOURCES` | 예스24·알라딘·IMDb·네이버 비공식 출처. **유료 결제를 열기 전에 `off`** |
 

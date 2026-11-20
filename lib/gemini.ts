@@ -1,3 +1,5 @@
+import { clovaConfigured, clovaJson, ClovaError } from "./clova";
+
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
 export class AiError extends Error {
@@ -68,8 +70,7 @@ async function post(body: unknown, timeoutMs: number): Promise<GeminiResponse> {
 
 const textOf = (r: GeminiResponse) => r.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
 
-/** 스키마를 따르는 JSON 응답을 받습니다. */
-export async function generateJson(prompt: string, schema: unknown, timeoutMs = 40000): Promise<unknown> {
+async function geminiJson(prompt: string, schema: unknown, timeoutMs: number): Promise<unknown> {
   const r = await post({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", responseSchema: schema } }, timeoutMs);
   const text = textOf(r).trim();
   if (!text) throw new AiError(502, "AI가 빈 응답을 보냈어요. 다시 시도해 주세요.");
@@ -78,6 +79,28 @@ export async function generateJson(prompt: string, schema: unknown, timeoutMs = 
   } catch {
     throw new AiError(502, "AI 응답 형식을 읽지 못했어요. 다시 시도해 주세요.");
   }
+}
+
+/**
+ * 스키마를 따르는 JSON 응답을 받습니다.
+ * AI_PROVIDERS(쉼표 구분, 기본 "gemini,clova") 순서대로, 키가 설정된 제공자를 차례로 시도하고
+ * 앞 제공자가 실패하면 다음 제공자로 넘어갑니다. gemini=Google, clova=네이버 HyperCLOVA X.
+ */
+export async function generateJson(prompt: string, schema: unknown, timeoutMs = 40000): Promise<unknown> {
+  const order = (process.env.AI_PROVIDERS || "gemini,clova").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const available = order.filter((p) => (p === "gemini" && process.env.GEMINI_API_KEY) || (p === "clova" && clovaConfigured()));
+  if (available.length === 0) throw new AiError(503, "AI 추천이 아직 설정되지 않았습니다.", "NO_KEY");
+  const perTry = available.length > 1 ? Math.min(timeoutMs, 25000) : timeoutMs;
+  let firstError: AiError | null = null;
+  for (const p of available) {
+    try {
+      return p === "gemini" ? await geminiJson(prompt, schema, perTry) : await clovaJson(prompt, schema, perTry);
+    } catch (e) {
+      console.error(`[ai] ${p} 실패`, e instanceof Error ? e.message : e);
+      if (!firstError) firstError = e instanceof AiError ? e : new AiError(e instanceof ClovaError && e.status === 429 ? 429 : 503, e instanceof ClovaError && e.status === 429 ? "AI 사용 한도에 도달했어요. 1분쯤 뒤에 다시 시도해 주세요. (429)" : "AI 서버가 일시적으로 혼잡해요. 잠시 후 다시 시도해 주세요.");
+    }
+  }
+  throw firstError as AiError;
 }
 
 /** Google 검색을 근거로 한 텍스트 응답과 출처 링크를 받습니다. */
