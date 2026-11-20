@@ -42,11 +42,13 @@ async function search(query: string, sort: "RELATION" | "RECENT" | "DEFAULT", pa
   } catch { return []; }
 }
 
-/** 예스24 저자 표기("로버트 C. 마틴 저 | 김아무개 역")에서 지은이만 앞의 두 명까지 남깁니다. */
+/** 예스24 저자 표기("톤 텔레헨 저/정유정 역/김고둥", "윤해 글/별사탕")에서 지은이만 앞의 두 명까지 남깁니다. */
 export function cleanAuthor(v: string): string {
-  const people = v.split(/[|,·]/).map((x) => x.trim()).filter(Boolean);
-  const main = people.filter((p) => !/\s(역|옮김|번역|감수|편역)$/.test(p));
-  return (main.length ? main : people).slice(0, 2).map((p) => p.replace(/\s+(저|글|그림|지음|저자|엮음|편|공저)$/, "").trim()).filter(Boolean).join(", ").slice(0, 100);
+  const people = v.split(/[|,·/]/).map((x) => x.trim()).filter(Boolean);
+  const writers = people.filter((p) => /\s(저|글|지음|저자|공저)$/.test(p));
+  const notTranslator = people.filter((p) => !/\s(역|옮김|번역|감수|편역|그림|사진)$/.test(p));
+  const main = writers.length ? writers : notTranslator.length ? notTranslator : people;
+  return main.slice(0, 2).map((p) => p.replace(/\s+(저|글|그림|지음|저자|엮음|편|공저|역|옮김)$/, "").trim()).filter(Boolean).join(", ").slice(0, 100);
 }
 
 /** "여름, 안녕 - 부제" → "여름, 안녕" */
