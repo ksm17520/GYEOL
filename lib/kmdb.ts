@@ -7,28 +7,33 @@ import { getJson, sameTitle } from "./cover";
  * 필드가 다르거나 오류가 나면 조용히 TMDB 정보로 대체됩니다.
  */
 export type KmdbMovie = { directors: string[]; actors: string[] };
+/** 확인용: no-key(키 없음) · ok(찾음) · no-match(응답은 왔으나 일치 작품 없음) · empty(응답에 Data/Result 없음) · error:… (호출 실패) */
+export type KmdbResult = { movie: KmdbMovie | null; status: string };
 
 const ENDPOINTS = ["https://api.koreafilm.or.kr/openapi-data2/wisenut/search_api/search_json2.jsp", "http://api.koreafilm.or.kr/openapi-data2/wisenut/search_api/search_json2.jsp"];
-const cache = new Map<string, KmdbMovie | null>();
+const cache = new Map<string, KmdbResult>();
 // 제목 강조 표시(!HS ... !HE)와 공백을 제거
 const clean = (s: string | undefined) => (s ?? "").replace(/!HS|!HE/g, "").replace(/\s+/g, " ").trim();
 type Row = { title?: string; titleEng?: string; titleOrg?: string; prodYear?: string; repRlsDate?: string; directors?: { director?: { directorNm?: string }[] }; actors?: { actor?: { actorNm?: string }[] } };
 
-export async function kmdbMovie(title: string, year: string, altTitles: string[] = []): Promise<KmdbMovie | null> {
+export async function kmdbMovie(title: string, year: string, altTitles: string[] = []): Promise<KmdbResult> {
   const raw = process.env.KMDB_API_KEY;
-  if (!raw || !title.trim()) return null;
+  if (!raw || !title.trim()) return { movie: null, status: "no-key" };
   const ck = `${title}::${year}`;
-  if (cache.has(ck)) return cache.get(ck) ?? null;
+  const cached = cache.get(ck);
+  if (cached) return cached;
   // 공공데이터포털 키는 이미 인코딩된 형태(%2B 등)로 복사되는 경우가 있어 한 번 풀고 다시 인코딩합니다.
   let key = raw.trim();
   try { if (/%[0-9A-Fa-f]{2}/.test(key)) key = decodeURIComponent(key); } catch { /* 그대로 사용 */ }
   const y = Number(year) || 0;
   const wanted = [title, ...altTitles].filter(Boolean);
   let found: KmdbMovie | null = null;
+  let status = "no-match";
   for (const base of ENDPOINTS) {
     try {
       const d = (await getJson(`${base}?collection=kmdb_new2&detail=Y&listCount=20&ServiceKey=${encodeURIComponent(key)}&title=${encodeURIComponent(title)}`, {}, 3500)) as { Data?: { Result?: Row[] }[] };
       const rows = (d.Data ?? []).flatMap((x) => x.Result ?? []);
+      if (rows.length === 0) status = "empty";
       const hit = rows.find((r) => {
         const ry = Number((r.repRlsDate || "").slice(0, 4)) || Number(r.prodYear) || 0;
         const nameOk = [clean(r.title), clean(r.titleEng), clean(r.titleOrg)].some((n) => n && wanted.some((t) => sameTitle(n, t)));
@@ -37,12 +42,13 @@ export async function kmdbMovie(title: string, year: string, altTitles: string[]
       if (hit) {
         const directors = (hit.directors?.director ?? []).map((p) => clean(p.directorNm)).filter(Boolean);
         const actors = (hit.actors?.actor ?? []).map((p) => clean(p.actorNm)).filter(Boolean);
-        if (directors.length || actors.length) found = { directors, actors };
+        if (directors.length || actors.length) { found = { directors, actors }; status = "ok"; }
       }
       break; // 응답을 받았으면(찾았든 못 찾았든) 다른 주소로 다시 묻지 않습니다
-    } catch { /* 다음 주소 */ }
+    } catch (e) { status = `error:${String((e as Error)?.message ?? e).replace(/ServiceKey=[^&\s]*/g, "ServiceKey=***").slice(0, 60)}`; /* 다음 주소 */ }
   }
   if (cache.size >= 500) cache.clear();
-  cache.set(ck, found);
-  return found;
+  const out = { movie: found, status };
+  if (!status.startsWith("error")) cache.set(ck, out); // 일시 오류는 캐시하지 않습니다
+  return out;
 }

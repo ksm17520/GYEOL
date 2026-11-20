@@ -211,7 +211,7 @@ const koNames = async (list: Person[], n: number): Promise<string> => {
 };
 const keepCharacter = (character: string | undefined) => Boolean(character);
 
-export type ScreenDetails = { creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string };
+export type ScreenDetails = { /** 확인용: 영화 감독·배우를 KMDb에서 가져왔는지(ok) 또는 이유 */ kmdb?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string };
 
 const DAY = 86400_000;
 let nowPlaying: { at: number; ids: Set<number> } | null = null;
@@ -250,7 +250,8 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       const top = (cr.cast ?? []).filter((c) => c.name).slice(0, 4);
       const crew = cr.crew ?? [];
       const directors = crew.filter((c) => c.job === "Director");
-      const [tmdbCreator, tmdbCast, nv] = await Promise.all([koNames(directors.length ? directors : crew.filter((c) => c.department === "Directing"), 2), Promise.all(top.map((c) => koName(c.id, c.name as string))), kmdbMovie(detail.title ?? "", String(detail.release_date ?? "").slice(0, 4), detail.original_title ? [detail.original_title] : [])]);
+      const [tmdbCreator, tmdbCast, nvr] = await Promise.all([koNames(directors.length ? directors : crew.filter((c) => c.department === "Directing"), 2), Promise.all(top.map((c) => koName(c.id, c.name as string))), kmdbMovie(detail.title ?? "", String(detail.release_date ?? "").slice(0, 4), detail.original_title ? [detail.original_title] : [])]);
+      const nv = nvr.movie;
       // 국내 개봉작은 KMDb(한국영상자료원)의 한글 감독·배우를 우선하고, 없으면 TMDB 정보를 씁니다.
       const creator = nv?.directors.length ? nv.directors.slice(0, 2).join(", ") : tmdbCreator;
       const castKo = top.map((c, i) => tmdbCast[i]);
@@ -262,6 +263,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       const isPlaying = playing?.has(tmdbId) === true;
       const reopened = isPlaying && !Number.isNaN(first) && first !== undefined && Date.now() - first > 365 * DAY;
       return {
+        kmdb: nvr.status,
         creator,
         cast: castShown,
         // 극중 이름은 TMDB 표기(KMDb는 극중 이름을 주지 않음). 배우 이름은 위에서 정한 한글 표기와 맞춥니다.
