@@ -316,7 +316,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       cast: castKo,
       characters: top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),
       lengthInfo: seasons > 1 ? `${seasons}시즌` : eps ? `${eps}부작` : "",
-      completionStatus: airing ? "방영 중" : "종영",
+      completionStatus: airing ? "방영 중" : String(detail.first_air_date ?? "").slice(0, 4),
     };
   } catch { return null; }
 }
