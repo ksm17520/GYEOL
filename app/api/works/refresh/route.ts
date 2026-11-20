@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findScreenId, screenDetails, type ScreenDetails } from "@/lib/screen-candidates";
+import { kmdbMovie } from "@/lib/kmdb";
 import { rateLimited } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -19,7 +20,11 @@ export async function POST(req: Request) {
     const title = clip(o.title, 100);
     if (!kind || !title) return null;
     const id = await findScreenId(kind, title, clip(o.year, 4), [clip(o.originalTitle, 100), clip(o.englishTitle, 100)].filter(Boolean));
-    return id ? screenDetails(kind, id) : null;
+    if (id) return screenDetails(kind, id);
+    // TMDB에 없는 국내 개봉 영화는 KMDb만으로 감독·배우·분량을 보완합니다(상영 상태는 모르므로 비워 저장된 값을 유지).
+    if (kind !== "film") return null;
+    const { movie, status } = await kmdbMovie(title, clip(o.year, 4), [clip(o.originalTitle, 100), clip(o.englishTitle, 100)].filter(Boolean));
+    return movie ? { kmdb: status, creator: movie.directors.slice(0, 2).join(", "), cast: movie.actors.slice(0, 4), characters: [], lengthInfo: movie.runtime ? `${movie.runtime}분` : "", completionStatus: "" } : null;
   }));
   return NextResponse.json({ results });
 }

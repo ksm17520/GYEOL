@@ -152,7 +152,7 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
             const r = results[idx];
             if (!r) return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER }; // 못 찾은 작품은 저장된 값을 그대로 두고, 12시간 뒤 다시 시도
             const it = b.item;
-            return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER, item: { ...it, creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.cast.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus } };
+            return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER, item: { ...it, creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.characters.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus } };
           }),
         }));
       }

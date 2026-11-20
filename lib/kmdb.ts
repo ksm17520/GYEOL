@@ -6,7 +6,7 @@ import { getJson, sameTitle } from "./cover";
  * 응답 규격(Data[0].Result[]: title·titleEng·prodYear·repRlsDate·directors.director[].directorNm·actors.actor[].actorNm)은 공개 안내를 기준으로 하며,
  * 필드가 다르거나 오류가 나면 조용히 TMDB 정보로 대체됩니다.
  */
-export type KmdbMovie = { directors: string[]; actors: string[] };
+export type KmdbMovie = { directors: string[]; actors: string[]; /** 분 단위 숫자 문자열 */ runtime: string; /** 국내 최초 개봉(없으면 제작) 연도 */ year: string };
 /** 확인용: no-key(키 없음) · ok(찾음) · no-match(응답은 왔으나 일치 작품 없음) · empty(응답에 Data/Result 없음) · error:… (호출 실패) */
 export type KmdbResult = { movie: KmdbMovie | null; status: string };
 
@@ -14,7 +14,7 @@ const ENDPOINTS = ["https://api.koreafilm.or.kr/openapi-data2/wisenut/search_api
 const cache = new Map<string, KmdbResult>();
 // 제목 강조 표시(!HS ... !HE)와 공백을 제거
 const clean = (s: string | undefined) => (s ?? "").replace(/!HS|!HE/g, "").replace(/\s+/g, " ").trim();
-type Row = { title?: string; titleEng?: string; titleOrg?: string; prodYear?: string; repRlsDate?: string; directors?: { director?: { directorNm?: string }[] }; actors?: { actor?: { actorNm?: string }[] } };
+type Row = { runtime?: string; title?: string; titleEng?: string; titleOrg?: string; prodYear?: string; repRlsDate?: string; directors?: { director?: { directorNm?: string }[] }; actors?: { actor?: { actorNm?: string }[] } };
 
 export async function kmdbMovie(title: string, year: string, altTitles: string[] = []): Promise<KmdbResult> {
   const raw = process.env.KMDB_API_KEY;
@@ -42,7 +42,9 @@ export async function kmdbMovie(title: string, year: string, altTitles: string[]
       if (hit) {
         const directors = (hit.directors?.director ?? []).map((p) => clean(p.directorNm)).filter(Boolean);
         const actors = (hit.actors?.actor ?? []).map((p) => clean(p.actorNm)).filter(Boolean);
-        if (directors.length || actors.length) { found = { directors, actors }; status = "ok"; }
+        const runtime = String(hit.runtime ?? "").replace(/\D/g, "");
+        const year = (hit.repRlsDate || "").slice(0, 4) || String(hit.prodYear ?? "").slice(0, 4);
+        if (directors.length || actors.length || runtime) { found = { directors, actors, runtime: Number(runtime) > 0 ? runtime : "", year }; status = "ok"; }
       }
       break; // 응답을 받았으면(찾았든 못 찾았든) 다른 주소로 다시 묻지 않습니다
     } catch (e) { status = `error:${String((e as Error)?.message ?? e).replace(/ServiceKey=[^&\s]*/g, "ServiceKey=***").slice(0, 60)}`; /* 다음 주소 */ }

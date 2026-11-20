@@ -259,7 +259,8 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       // 한국 극장 개봉일(2=제한 개봉, 3=극장 개봉) 중 가장 이른 날이 최초 개봉, 없으면 세계 개봉일
       const krDates = (rel?.results?.find((r) => r.iso_3166_1 === "KR")?.release_dates ?? []).filter((d) => (d.type === 2 || d.type === 3) && d.release_date).map((d) => Date.parse(d.release_date as string)).filter((t) => !Number.isNaN(t)).sort((a, b) => a - b);
       const first = krDates[0] ?? Date.parse(detail.release_date ?? "");
-      const year = Number.isNaN(first) || first === undefined ? String(detail.release_date ?? "").slice(0, 4) : String(new Date(first).getUTCFullYear());
+      // 한국 개봉일이 TMDB에 없으면 KMDb의 국내 개봉 연도를 먼저 쓰고, 그것도 없으면 TMDB의 세계 개봉 연도를 씁니다.
+      const year = krDates.length === 0 && nv?.year ? nv.year : Number.isNaN(first) || first === undefined ? String(detail.release_date ?? "").slice(0, 4) : String(new Date(first).getUTCFullYear());
       const isPlaying = playing?.has(tmdbId) === true;
       const reopened = isPlaying && !Number.isNaN(first) && first !== undefined && Date.now() - first > 365 * DAY;
       return {
@@ -268,7 +269,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
         cast: castShown,
         // 극중 이름은 TMDB 표기(KMDb는 극중 이름을 주지 않음). 배우 이름은 위에서 정한 한글 표기와 맞춥니다.
         characters: top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),
-        lengthInfo: detail.runtime ? `${detail.runtime}분` : "",
+        lengthInfo: detail.runtime ? `${detail.runtime}분` : nv?.runtime ? `${nv.runtime}분` : "",
         completionStatus: isPlaying ? (reopened ? "재개봉" : "상영중") : year,
       };
     }
