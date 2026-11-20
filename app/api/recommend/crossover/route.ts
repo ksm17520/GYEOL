@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { aiErrorBody, AiError, generateJson } from "@/lib/gemini";
+import { verifyItems } from "@/lib/verify";
 import { rateLimited } from "@/lib/ratelimit";
 import { crossoverPrompt, crossoverSchema, parseCrossoverRequest, parseItems } from "@/lib/recommend-api";
 
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
   if (!parsed) return NextResponse.json({ error: "최소 1개 이상의 인생작을 입력해 주세요.", code: "BAD" }, { status: 400 });
   try {
     const raw = (await generateJson(crossoverPrompt(parsed), crossoverSchema())) as Record<string, unknown>;
-    const items = parseItems(raw.items, "cross");
+    const items = await verifyItems(parseItems(raw.items, "cross"));
     if (items.length === 0) throw new AiError(502, "추천 결과를 만들지 못했어요. 다시 시도해 주세요.");
     return NextResponse.json({
       sharedDnaTitle: typeof raw.sharedDnaTitle === "string" && raw.sharedDnaTitle ? raw.sharedDnaTitle.slice(0, 200) : "매체를 잇는 서사의 결",

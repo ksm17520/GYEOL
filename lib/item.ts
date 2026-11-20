@@ -31,6 +31,8 @@ export type RecItem = {
   crossoverHint: string;
   accentTone: AccentTone;
   source: "ai" | "sample";
+  /** 외부 출처(서점·TMDB 등)에서 실제 작품으로 확인되었는지. AI 추천에만 서버가 채웁니다. */
+  verified?: boolean;
 };
 
 export const itemKey = (i: { media: Media; title: string }) => `${i.media}::${i.title.trim().toLowerCase()}`;
@@ -81,6 +83,7 @@ export function sanitizeItem(raw: unknown, fallbackId: string, source: "ai" | "s
     crossoverHint: s(raw.crossoverHint, 300),
     accentTone: tone,
     source: raw.source === "sample" ? "sample" : source,
+    verified: raw.verified === true ? true : undefined,
   };
 }
 
