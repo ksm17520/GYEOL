@@ -321,6 +321,16 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
   } catch { return null; }
 }
 
+/** 두 글자씩 끊어 비교한 유사도(0~1) */
+function dice(a: string, b: string): number {
+  const g = (x: string) => { const m = new Map<string, number>(); for (let i = 0; i < x.length - 1; i++) { const k = x.slice(i, i + 2); m.set(k, (m.get(k) ?? 0) + 1); } return m; };
+  const ga = g(a), gb = g(b);
+  let hit = 0;
+  ga.forEach((n, k) => { hit += Math.min(n, gb.get(k) ?? 0); });
+  const tot = Math.max(a.length - 1, 0) + Math.max(b.length - 1, 0);
+  return tot ? (2 * hit) / tot : 0;
+}
+
 const norm = (v: string) => v.toLowerCase().replace(/[\s'"‘’“”·:：,.!?\-–—_()[\]]+/g, "");
 
 /**
@@ -330,7 +340,7 @@ const norm = (v: string) => v.toLowerCase().replace(/[\s'"‘’“”·:：,.!?
 export async function findScreenId(kind: ScreenKind, title: string, year: string, alt: string[] = []): Promise<number | null> {
   if (!key()) return null;
   const path = kind === "film" ? "movie" : "tv";
-  const parts = title.split(/\s+[-–]\s+/).map((x) => x.replace(/^['"‘“]+|['"’”]+$/g, "").trim()).filter(Boolean);
+  const parts = title.split(/\s+[-–]\s+|\s*[:：]\s*/).map((x) => x.replace(/^['"‘“]+|['"’”]+$/g, "").trim()).filter(Boolean);
   const queries = Array.from(new Set([title, ...parts, ...alt].map((x) => x.trim()).filter(Boolean))).slice(0, 4);
   const wanted = new Set(queries.map(norm));
   const y0 = Number(year) || 0;
@@ -339,7 +349,13 @@ export async function findScreenId(kind: ScreenKind, title: string, year: string
       const d = (await getJson(`${TMDB}/search/${path}?api_key=${encodeURIComponent(key() as string)}&language=ko-KR&include_adult=false&query=${encodeURIComponent(q)}`, {}, 3500)) as {
         results?: { id: number; title?: string; name?: string; original_title?: string; original_name?: string; release_date?: string; first_air_date?: string; popularity?: number }[];
       };
-      const hits = (d.results ?? []).slice(0, 10).filter((r) => [r.title, r.name, r.original_title, r.original_name].some((n) => n && wanted.has(norm(n))));
+      // 제목이 정확히 같거나, 한쪽이 다른 쪽을 포함하거나(부제 유무), 글자 유사도가 높으면(띄어쓰기·외래어 표기 차이) 같은 작품으로 봅니다.
+      const same = (n?: string) => {
+        if (!n) return false;
+        const a = norm(n);
+        return Array.from(wanted).some((w) => w === a || (Math.min(w.length, a.length) >= 3 && (w.includes(a) || a.includes(w))) || (Math.min(w.length, a.length) >= 4 && dice(w, a) >= 0.6));
+      };
+      const hits = (d.results ?? []).slice(0, 10).filter((r) => [r.title, r.name, r.original_title, r.original_name].some(same));
       const ok = hits.filter((r) => {
         const y = Number((r.release_date || r.first_air_date || "").slice(0, 4)) || 0;
         return !y0 || !y || Math.abs(y - y0) <= 1;
