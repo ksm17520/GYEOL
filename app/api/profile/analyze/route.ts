@@ -25,7 +25,7 @@ const asStrings = (v: unknown, max: number) =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 8).map((x) => x.slice(0, max)) : [];
 
 async function analyze(prompt: string): Promise<TasteProfile> {
-  const p = (await generateJson(prompt, SCHEMA, 25000)) as Record<string, unknown>;
+  const p = (await generateJson(prompt, SCHEMA, 45000)) as Record<string, unknown>;
   if (typeof p.personaTitle !== "string" || typeof p.editorialSummary !== "string") throw new Error("형식 오류");
   return {
     personaTitle: p.personaTitle.slice(0, 200),
@@ -59,7 +59,8 @@ export async function POST(req: Request) {
   }
   try {
     return NextResponse.json({ profile: await analyze(buildPrompt(input)) });
-  } catch {
+  } catch (e) {
+    console.error("[profile] AI 분석 실패", e instanceof Error ? e.message : e);
     return NextResponse.json({ profile: ruleBasedProfile(input), notice: "AI 분석이 일시적으로 어려워 기본 분석 결과를 보여드려요." });
   }
 }
