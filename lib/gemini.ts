@@ -55,12 +55,13 @@ async function callModel(model: string, body: unknown, timeoutMs: number): Promi
   return { ok: false, status, detail };
 }
 
-async function post(body: unknown, timeoutMs: number): Promise<GeminiResponse> {
+async function post(body: unknown, timeoutMs: number, models: [string, string] = [MODEL, FALLBACK_MODEL]): Promise<GeminiResponse> {
   if (!process.env.GEMINI_API_KEY) throw new AiError(503, "AI 추천이 아직 설정되지 않았습니다.", "NO_KEY");
-  let r = await callModel(MODEL, body, timeoutMs);
+  const [primary, fallback] = models;
+  let r = await callModel(primary, body, timeoutMs);
   // 기본 모델이 없거나(404) 과부하(429·500·503)일 때 보조 모델로 한 번 더 시도합니다.
-  if (!r.ok && [404, 429, 500, 503, 504].includes(r.status) && FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) {
-    const second = await callModel(FALLBACK_MODEL, body, Math.min(timeoutMs, 20000));
+  if (!r.ok && [404, 429, 500, 503, 504].includes(r.status) && fallback && fallback !== primary) {
+    const second = await callModel(fallback, body, Math.min(timeoutMs, 20000));
     if (second.ok) return second.data;
     r = r.status === 404 || r.status === 504 ? second : r;
   }
@@ -108,8 +109,11 @@ export async function generateJson(prompt: string, schema: unknown, timeoutMs = 
 }
 
 /** Google 검색을 근거로 한 텍스트 응답과 출처 링크를 받습니다. */
+/** 검색 근거(Google 검색) 호출용 모델. 무료 등급은 Gemini 3 계열의 검색 근거 한도가 0이라 2.5 계열을 씁니다. */
+const GROUNDING_MODELS: [string, string] = [process.env.GEMINI_GROUNDING_MODEL || "gemini-2.5-flash", process.env.GEMINI_GROUNDING_FALLBACK_MODEL || "gemini-2.5-flash-lite"];
+
 export async function generateGrounded(prompt: string, timeoutMs = 25000): Promise<{ text: string; sources: { title: string; uri: string }[] }> {
-  const r = await post({ contents: [{ parts: [{ text: prompt }] }], tools: [{ google_search: {} }] }, timeoutMs);
+  const r = await post({ contents: [{ parts: [{ text: prompt }] }], tools: [{ google_search: {} }] }, timeoutMs, GROUNDING_MODELS);
   const seen = new Set<string>();
   const sources: { title: string; uri: string }[] = [];
   for (const c of r.candidates?.[0]?.groundingMetadata?.groundingChunks ?? []) {
