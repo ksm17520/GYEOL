@@ -330,36 +330,43 @@ const norm = (v: string) => v.toLowerCase().replace(/[\s'"‘’“”·:：,.!?
  * 연도가 저장돼 있지 않으면 제목이 정확히 같은 가장 인기 있는 작품을 고릅니다.
  */
 export async function findScreenId(kind: ScreenKind, title: string, year: string, alt: string[] = []): Promise<number | null> {
-  if (!key()) return null;
+  return (await findScreen(kind, title, year, alt)).id;
+}
+
+/** findScreenId와 같지만, 어떻게 찾았는지(또는 못 찾은 이유와 검색 결과 상위 항목)를 `match`에 함께 돌려줍니다(확인용). */
+export async function findScreen(kind: ScreenKind, title: string, year: string, alt: string[] = []): Promise<{ id: number | null; match: string }> {
+  if (!key()) return { id: null, match: "no-key" };
   const path = kind === "film" ? "movie" : "tv";
   const parts = title.split(/\s+[-–]\s+|\s*[:：]\s*/).map((x) => x.replace(/^['"‘“]+|['"’”]+$/g, "").trim()).filter(Boolean);
   const queries = Array.from(new Set([title, ...parts, ...alt].map((x) => x.trim()).filter(Boolean))).slice(0, 4);
   const wanted = new Set(queries.map(norm));
   const y0 = Number(year) || 0;
   type Hit = { id: number; title?: string; name?: string; original_title?: string; original_name?: string; release_date?: string; first_air_date?: string; popularity?: number };
+  const yearOf = (r: Hit) => (r.release_date || r.first_air_date || "").slice(0, 4);
+  const label = (r: Hit) => `${r.title || r.name || "?"}/${r.original_title || r.original_name || "?"}(${yearOf(r) || "?"})`;
+  const log: string[] = [];
   let firstTop: Hit | null = null; // 저장된 제목으로 검색한 결과의 1위(표기가 달라 정확히 같은 제목을 못 찾을 때의 후보)
   for (const q of queries) {
     try {
-      const d = (await getJson(`${TMDB}/search/${path}?api_key=${encodeURIComponent(key() as string)}&language=ko-KR&include_adult=false&query=${encodeURIComponent(q)}`, {}, 3500)) as {
-        results?: { id: number; title?: string; name?: string; original_title?: string; original_name?: string; release_date?: string; first_air_date?: string; popularity?: number }[];
-      };
+      const d = (await getJson(`${TMDB}/search/${path}?api_key=${encodeURIComponent(key() as string)}&language=ko-KR&include_adult=false&query=${encodeURIComponent(q)}`, {}, 3500)) as { results?: Hit[] };
       if (q === queries[0]) firstTop = (d.results ?? [])[0] ?? null;
+      log.push(`"${q}"→${(d.results ?? []).slice(0, 3).map(label).join(" | ") || "결과 없음"}`);
       const hits = (d.results ?? []).slice(0, 10).filter((r) => [r.title, r.name, r.original_title, r.original_name].some((n) => n && wanted.has(norm(n))));
       const ok = hits.filter((r) => {
-        const y = Number((r.release_date || r.first_air_date || "").slice(0, 4)) || 0;
+        const y = Number(yearOf(r)) || 0;
         return !y0 || !y || Math.abs(y - y0) <= 1;
       }).sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
-      if (ok[0]) return ok[0].id;
-    } catch { /* 다음 검색어 */ }
+      if (ok[0]) return { id: ok[0].id, match: `exact "${q}"→${label(ok[0])}` };
+    } catch { log.push(`"${q}"→검색 실패`); }
   }
   // 정확히 같은 제목이 없으면, 검색 1위이고 연도가 정확히 같은 작품만 인정합니다(띄어쓰기·표기 차이 대응).
   // 한쪽 제목이 다른 쪽을 포함하는 경우('계시록'과 '청춘계시록')는 다른 작품일 수 있어 인정하지 않습니다.
   const top = firstTop as Hit | null;
   if (top && y0) {
-    const y = Number((top.release_date || top.first_air_date || "").slice(0, 4)) || 0;
     const w = norm(title);
     const confusable = [top.title, top.name, top.original_title, top.original_name].some((n) => { const a = n ? norm(n) : ""; return a && a !== w && (a.includes(w) || w.includes(a)); });
-    if (y === y0 && !confusable) return top.id;
+    if (Number(yearOf(top)) === y0 && !confusable) return { id: top.id, match: `top ${label(top)}` };
+    return { id: null, match: `none(저장 연도 ${y0}, 1위 ${label(top)}, ${confusable ? "제목 포함 관계라 제외" : Number(yearOf(top)) === y0 ? "" : "연도 불일치"}) ${log.join(" ; ")}` };
   }
-  return null;
+  return { id: null, match: `none(${y0 ? "검색 결과 없음" : "저장 연도 없음"}) ${log.join(" ; ")}` };
 }
