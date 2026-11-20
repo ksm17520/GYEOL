@@ -29,6 +29,7 @@ type Ctx = ArchiveStore & {
   setTasteProfile: (p: TasteProfile | null) => void;
   /** 보관함의 영화·시리즈 감독·출연진·분량·상영/방영 상태를 TMDB 정보로 갱신합니다(12시간에 한 번). */
   syncScreenInfo: () => Promise<void>;
+  syncCovers: () => Promise<void>;
   exportJson: () => string;
   importJson: (raw: string) => { ok: boolean; error?: string };
 };
@@ -159,6 +160,38 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
     } finally { syncing.current = false; }
   }, []);
 
+  // 제목이 비슷한 다른 작품의 표지가 저장된 경우를 바로잡기 위해, 보관함을 열 때 표지를 한 번 다시 조회합니다(COVER_SYNC_VER가 바뀔 때마다).
+  const coverSyncing = useRef(false);
+  const syncCovers = useCallback(async () => {
+    if (coverSyncing.current) return;
+    const COVER_SYNC_VER = 1; // 1: 제목 포함만으로는 같은 작품으로 보지 않음
+    const targets = storeRef.current.bookmarks.filter((b) => b.coverSyncVer !== COVER_SYNC_VER);
+    if (targets.length === 0) return;
+    coverSyncing.current = true;
+    try {
+      for (let i = 0; i < targets.length; i += 3) {
+        const chunk = targets.slice(i, i + 3);
+        const urls = await Promise.all(chunk.map(async (b) => {
+          try {
+            const res = await fetch("/api/works/cover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: b.item.title, originalTitle: b.item.originalTitle, englishTitle: b.item.englishTitle, creator: b.item.creator, media: b.item.media, releaseYear: b.item.releaseYear }) });
+            if (!res.ok) return undefined; // 일시 오류: 저장된 표지를 그대로 두고 다음에 다시 시도
+            return ((await res.json()) as { coverImageUrl?: string | null }).coverImageUrl ?? null;
+          } catch { return undefined; }
+        }));
+        setStore((p) => ({
+          ...p,
+          bookmarks: p.bookmarks.map((b) => {
+            const idx = chunk.findIndex((c) => c.key === b.key);
+            if (idx < 0) return b;
+            const u = urls[idx];
+            if (u === undefined) return b;
+            return { ...b, coverSyncVer: COVER_SYNC_VER, item: { ...b.item, coverImageUrl: u ?? undefined } };
+          }),
+        }));
+      }
+    } finally { coverSyncing.current = false; }
+  }, []);
+
   const removeBookmark = useCallback((key: string) => {
     setStore((p) => ({ ...p, bookmarks: p.bookmarks.filter((b) => b.key !== key) }));
   }, []);
@@ -204,8 +237,8 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<Ctx>(
-    () => ({ ...store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncScreenInfo, exportJson, importJson }),
-    [store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncScreenInfo, exportJson, importJson],
+    () => ({ ...store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncScreenInfo, syncCovers, exportJson, importJson }),
+    [store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncScreenInfo, syncCovers, exportJson, importJson],
   );
 
   return (

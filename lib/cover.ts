@@ -34,11 +34,19 @@ export function refererFor(host: string): string | undefined {
 const cache = new Map<string, string | null>();
 
 const norm = (v: string) => v.toLowerCase().replace(/[\s\-_.,!?:'"()[\]·~]/g, "").trim();
-function close(a: string, b: string): boolean {
+/**
+ * 같은 작품의 제목인지 봅니다. 띄어쓰기·기호 차이를 뺀 제목이 같거나, 한쪽이 다른 쪽으로 "시작하고 바로 뒤가 띄어쓰기·기호·숫자"일 때(부제·시즌 표기)만 인정합니다.
+ * 한쪽이 다른 쪽의 일부로 들어 있기만 한 경우('계시록'과 '청춘계시록')는 다른 작품이므로 인정하지 않습니다.
+ */
+function sameBase(a: string, b: string): boolean {
   const x = norm(a), y = norm(b);
   if (!x || !y) return false;
-  return x === y || (y.length >= 2 && (x.includes(y) || y.includes(x)));
+  if (x === y) return true;
+  const clean = (v: string) => v.toLowerCase().trim().replace(/^['"‘“]+/, "");
+  const [s, l] = x.length <= y.length ? [clean(a), clean(b)] : [clean(b), clean(a)];
+  return s.length >= 2 && l.startsWith(s) && /^[\s:：\-–(\[\d]/.test(l.slice(s.length));
 }
+const close = sameBase;
 
 export async function getJson(url: string, init: RequestInit = {}, ms = 2800): Promise<unknown> {
   const res = await fetch(url, { ...init, headers: { "User-Agent": "GyeolArchive/1.0", ...(init.headers ?? {}) }, signal: AbortSignal.timeout(ms) });
@@ -112,13 +120,9 @@ async function naverWebtoon(title: string): Promise<string | null> {
   return pool.find((x) => x.thumbnailUrl && x.titleName && close(x.titleName, title))?.thumbnailUrl ?? null;
 }
 
-/** 거의 같은 제목인지 확인합니다. 한쪽이 다른 쪽에 포함되어도 길이가 70% 이상 같아야 인정합니다. */
+/** 같은 제목인지 확인합니다(부제·시즌 표기는 허용, 단순 포함은 불허). */
 export function sameTitle(a: string, b: string): boolean {
-  const x = norm(a), y = norm(b);
-  if (!x || !y) return false;
-  if (x === y) return true;
-  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
-  return short.length >= 3 && long.includes(short) && short.length / long.length >= 0.7;
+  return sameBase(a, b);
 }
 
 export const toProxy = (raw: string | undefined): string | null => {

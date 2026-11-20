@@ -28,8 +28,8 @@ export default function ArchivePage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 보관함을 열 때 영화·시리즈의 감독·상태를 최신 TMDB 정보로 갱신합니다.
-  const { ready, syncScreenInfo } = a;
-  useEffect(() => { if (ready) void syncScreenInfo(); }, [ready, syncScreenInfo]);
+  const { ready, syncScreenInfo, syncCovers } = a;
+  useEffect(() => { if (ready) { void syncScreenInfo(); void syncCovers(); } }, [ready, syncScreenInfo, syncCovers]);
 
   const items = a.bookmarks.filter((b) => (status === "all" || b.status === status) && (media === "all" || b.item.media === media));
 
