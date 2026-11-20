@@ -50,6 +50,28 @@ async function naver(keyword: string): Promise<Raw[]> {
   return list.filter((x) => x.titleName).map((x) => ({ title: x.titleName as string, creator: "", genre: "", platform: "네이버웹툰" as const, cover: toProxy(x.thumbnailUrl), pid: x.titleId != null ? String(x.titleId) : undefined, done: typeof x.finished === "boolean" ? x.finished : undefined }));
 }
 
+type NaverListItem = { titleId?: number | string; titleName?: string; thumbnailUrl?: string; starScore?: number };
+const naverRaws = (list: NaverListItem[], finished: boolean): Raw[] =>
+  list.filter((x) => x.titleName && x.titleId != null).map((x) => ({ title: x.titleName as string, creator: "", genre: "", platform: "네이버웹툰" as const, cover: toProxy(x.thumbnailUrl), pid: String(x.titleId), done: finished ? true : undefined, pop: x.starScore }));
+
+/**
+ * 네이버웹툰은 검색이 제목 글자만 맞춰 주므로, 장르 낱말로는 후보가 거의 없습니다.
+ * 그래서 연재 중 요일별 목록(완결만 보기면 완결 목록)에서 별점이 높은 작품을 후보로 함께 넣어 플랫폼 쏠림을 막습니다(비공식 주소).
+ */
+async function naverTop(finishedOnly: boolean): Promise<Raw[]> {
+  try {
+    if (finishedOnly) {
+      const d = (await getJson("https://comic.naver.com/api/webtoon/titlelist/finished?page=1&order=VIEW", { headers: { Referer: "https://comic.naver.com/" } }, 4000)) as { titleList?: NaverListItem[] };
+      return naverRaws((d.titleList ?? []).slice(0, 30), true);
+    }
+    const d = (await getJson("https://comic.naver.com/api/webtoon/titlelist/weekday?order=user", { headers: { Referer: "https://comic.naver.com/" } }, 4000)) as { titleListMap?: Record<string, NaverListItem[]> };
+    const all = Object.values(d.titleListMap ?? {}).flat();
+    const seen = new Set<string>();
+    const uniq = all.filter((x) => x.titleId != null && !seen.has(String(x.titleId)) && seen.add(String(x.titleId)));
+    return naverRaws(uniq.sort((a, b) => (b.starScore ?? 0) - (a.starScore ?? 0)).slice(0, 30), false);
+  } catch { return []; }
+}
+
 /** 같은 작품(제목이 같음)을 하나로 합치고, 올라 있는 플랫폼을 모읍니다. 실제로 찾은 순서를 지킵니다. */
 export function mergeCandidates(raws: Raw[], limit = 40): WebtoonCandidate[] {
   const out: WebtoonCandidate[] = [];
@@ -86,12 +108,16 @@ async function kakaoWebtoonDetail(id: string): Promise<KwDetail | null> {
   } catch { return null; }
 }
 
-/** 네이버웹툰 회차 목록 정보에서 완결 여부를 읽습니다(비공식). 읽지 못하면 undefined. */
-async function naverFinished(id: string): Promise<boolean | undefined> {
+/** 네이버웹툰 작품 정보에서 완결 여부·태그·소개를 읽습니다(비공식). 읽지 못하면 null. */
+async function naverDetail(id: string): Promise<KwDetail | null> {
   try {
-    const d = (await getJson(`https://comic.naver.com/api/article/list/info?titleId=${encodeURIComponent(id)}`, { headers: { Referer: "https://comic.naver.com/" } }, 3000)) as { finished?: boolean };
-    return typeof d.finished === "boolean" ? d.finished : undefined;
-  } catch { return undefined; }
+    const d = (await getJson(`https://comic.naver.com/api/article/list/info?titleId=${encodeURIComponent(id)}`, { headers: { Referer: "https://comic.naver.com/" } }, 3000)) as { finished?: boolean; synopsis?: string; curationTagList?: { tagName?: string }[] };
+    return {
+      finished: typeof d.finished === "boolean" ? d.finished : undefined,
+      tags: (d.curationTagList ?? []).map((t) => (t.tagName ? `#${t.tagName.replace(/^#/, "")}` : "")).filter(Boolean).slice(0, 6),
+      synopsis: String(d.synopsis ?? "").replace(/\s+/g, " ").slice(0, 80),
+    };
+  } catch { return null; }
 }
 
 /**
@@ -103,13 +129,13 @@ async function fillDetails(list: WebtoonCandidate[], limit: number, needFinished
   await Promise.all(list.map(async (c) => {
     if (budget <= 0) return;
     const kw = c.pids?.카카오웹툰, nv = c.pids?.네이버웹툰;
-    if (!kw && !(needFinished && nv && c.finished === undefined)) return;
+    if (!kw && !nv) return;
     budget--;
-    const [d, nf] = await Promise.all([kw ? kakaoWebtoonDetail(kw) : Promise.resolve(null), needFinished && nv && c.finished === undefined ? naverFinished(nv) : Promise.resolve(undefined)]);
-    if (d) { if (d.tags.length) c.tags = d.tags; if (d.synopsis) c.synopsis = d.synopsis; }
-    const fin = [d?.finished, nf];
+    const [d1, d2] = await Promise.all([kw ? kakaoWebtoonDetail(kw) : Promise.resolve(null), nv ? naverDetail(nv) : Promise.resolve(null)]);
+    for (const d of [d1, d2]) if (d) { if (d.tags.length && !c.tags) c.tags = d.tags; if (d.synopsis && !c.synopsis) c.synopsis = d.synopsis; }
+    const fin = [d1?.finished, d2?.finished];
     if (fin.some((x) => x === true)) c.finished = true;
-    else if (c.finished === undefined && fin.some((x) => x === false)) c.finished = false;
+    else if (needFinished && c.finished === undefined && fin.some((x) => x === false)) c.finished = false;
   }));
 }
 
@@ -133,7 +159,7 @@ export async function gatherWebtoonCandidates(keywords: string[], opts: { finish
   const kws = Array.from(new Set(keywords.map((k) => k.trim()).filter(Boolean))).slice(0, 4);
   if (kws.length === 0) return [];
   const finishedOnly = opts.finishedOnly === true;
-  const rounds = await Promise.all(kws.flatMap((k) => [kakaoPage(k, finishedOnly), kakaoWebtoon(k), naver(k)]));
+  const rounds = await Promise.all([...kws.flatMap((k) => [kakaoPage(k, finishedOnly), kakaoWebtoon(k), naver(k)]), naverTop(finishedOnly)]);
   // 키워드·플랫폼이 골고루 섞이도록 라운드로빈으로 합칩니다.
   const raws: Raw[] = [];
   for (let i = 0; i < 30; i++) for (const r of rounds) if (r[i]) raws.push(r[i]);
@@ -147,6 +173,6 @@ export async function gatherWebtoonCandidates(keywords: string[], opts: { finish
   }
   // 분위기 정보는 고른 후보 중 카카오웹툰 쪽 일부에만 채웁니다(응답 시간 때문에).
   const picked = balance(pool, 40);
-  await fillDetails(picked, 14, false);
+  await fillDetails(picked, 18, false);
   return picked.map((c, i) => ({ ...c, id: `c${i + 1}` }));
 }
