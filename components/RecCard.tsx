@@ -1,7 +1,7 @@
 "use client";
 
 import { MEDIA_LABEL } from "@/lib/data";
-import type { RecItem } from "@/lib/item";
+import { directorLabel, statusLabel, type RecItem } from "@/lib/item";
 import { buildPlatformLinks } from "@/lib/platforms";
 import { Cover } from "./Cover";
 
@@ -10,12 +10,12 @@ export function RecCard({ item, prefer, saved, onSave, onCross, onOpen, onTrack 
   onSave: () => void; onCross: () => void; onOpen: () => void; onTrack: (platformName: string) => void;
 }) {
   const links = buildPlatformLinks(item.title, item.creator, item.media, item.recommendedPlatforms).slice(0, 3);
-  const creator = item.media === "film" || item.media === "drama" ? `감독 ${item.creator.replace(/^감독\s*/, "")}` : item.creator;
+  const creator = item.media === "film" || item.media === "drama" ? `감독 ${directorLabel(item.creator)}` : item.creator;
   return (
     <article className="card">
       <Cover item={item} />
       <div className="rec-body">
-        <div className="meta"><b>{MEDIA_LABEL[item.media]}</b>{item.lengthInfo ? ` · ${item.lengthInfo}` : ""}{item.completionStatus ? ` · ${item.completionStatus}` : ""}{item.source === "ai" && !item.verified ? " · 출처 미확인" : ""}{item.availability === "discontinued" ? " · 서비스가 중단된 콘텐츠" : ""}</div>
+        <div className="meta"><b>{MEDIA_LABEL[item.media]}</b>{item.lengthInfo ? ` · ${item.lengthInfo}` : ""}{statusLabel(item) ? ` · ${statusLabel(item)}` : ""}{item.source === "ai" && !item.verified ? " · 출처 미확인" : ""}{item.availability === "discontinued" ? " · 서비스가 중단된 콘텐츠" : ""}</div>
         <h3 className="font-editorial"><button className="title-btn" onClick={onOpen}>{item.title}</button></h3>
         <p className="by">{creator}</p>
         <p className="reason">{item.matchReason || item.logline}</p>

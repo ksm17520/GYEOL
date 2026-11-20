@@ -120,3 +120,17 @@ export function workToItem(w: Work, index: number): RecItem {
 }
 
 export const mediaLabel = (m: Media) => MEDIA_LABEL[m];
+
+/**
+ * 카드·상세에 보여 줄 상태 글자. 영화는 상영중·재개봉·개봉연도, 드라마는 방영 중 또는 방영 시작 연도, 그 외는 완결 여부입니다.
+ * 영화·드라마에는 "완결"을 쓰지 않고 연도로 바꿉니다(예전 저장본 포함).
+ */
+export function statusLabel(item: { media: Media; completionStatus: string; releaseYear: string }): string {
+  const c = item.completionStatus.trim();
+  if (item.media === "film") return c === "상영중" || c === "재개봉" ? c : /^\d{4}$/.test(c) ? c : item.releaseYear.slice(0, 4);
+  if (item.media === "drama") return /^방영\s*중$/.test(c) ? "방영 중" : /^\d{4}$/.test(c) ? c : item.releaseYear.slice(0, 4);
+  return c;
+}
+
+/** 영화·드라마 감독·연출 표시. 비어 있으면 안내 문구를 씁니다. */
+export const directorLabel = (creator: string): string => creator.replace(/^감독\s*/, "").trim() || "정보 없음";

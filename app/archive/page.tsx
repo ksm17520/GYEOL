@@ -6,7 +6,7 @@ import { TopBar } from "@/components/TopBar";
 import { useArchive } from "@/app/providers";
 import { WorkDetailModal } from "@/components/WorkDetailModal";
 import { MEDIA_LABEL, type Media } from "@/lib/data";
-import type { RecItem } from "@/lib/item";
+import { directorLabel, type RecItem } from "@/lib/item";
 import { buildPlatformLinks } from "@/lib/platforms";
 import { STATUS_LABEL, type WatchStatus } from "@/lib/archive-types";
 
@@ -101,7 +101,7 @@ export default function ArchivePage() {
                     <div>
                       <div className="mono muted">{MEDIA_LABEL[b.item.media]}{b.item.releaseYear ? ` · ${b.item.releaseYear}` : ""}{b.item.lengthInfo ? ` · ${b.item.lengthInfo}` : ""}</div>
                       <h3 className="font-editorial"><button className="title-btn" onClick={() => setDetail(b.item)}>{b.item.title}</button></h3>
-                      <div className="by">{b.item.media === "film" || b.item.media === "drama" ? `감독 ${b.item.creator.replace(/^감독\s*/, "")}` : b.item.creator}{b.item.cast.length > 0 ? ` · ${b.item.cast.slice(0, 3).join(", ")}` : ""}</div>
+                      <div className="by">{b.item.media === "film" || b.item.media === "drama" ? `감독 ${directorLabel(b.item.creator)}` : b.item.creator}{b.item.cast.length > 0 ? ` · ${b.item.cast.slice(0, 3).join(", ")}` : ""}</div>
                     </div>
                     <button className="icon" aria-label="보관함에서 삭제" onClick={() => a.removeBookmark(b.key)}>🗑</button>
                   </div>

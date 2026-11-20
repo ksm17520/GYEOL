@@ -186,20 +186,76 @@ export async function gatherScreenCandidates(
   return out;
 }
 
-/** 확정한 작품의 감독·주연·극중 인물을 TMDB 출연진 정보에서 읽습니다(AI 추측이 아님). */
-export async function creditsOf(kind: ScreenKind, tmdbId: number): Promise<{ creator: string; cast: string[]; characters: string[] } | null> {
+export type ScreenDetails = { creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string };
+
+const DAY = 86400_000;
+let nowPlaying: { at: number; ids: Set<number> } | null = null;
+
+/** 지금 한국 극장에서 상영 중인 영화 번호들(재개봉 포함). 30분 캐시. 실패하면 null(상영 여부를 모름). */
+async function nowPlayingIds(): Promise<Set<number> | null> {
+  if (nowPlaying && Date.now() - nowPlaying.at < 30 * 60_000) return nowPlaying.ids;
   try {
-    const path = kind === "film" ? "movie" : "tv";
-    const [cr, detail] = await Promise.all([
-      getJson(`${TMDB}/${path}/${tmdbId}/credits?api_key=${encodeURIComponent(key() as string)}&language=ko-KR`, {}, 3000) as Promise<{ cast?: { name?: string; character?: string }[]; crew?: { name?: string; job?: string }[] }>,
-      kind === "drama" ? (getJson(`${TMDB}/tv/${tmdbId}?api_key=${encodeURIComponent(key() as string)}&language=ko-KR`, {}, 3000) as Promise<{ created_by?: { name?: string }[] }>) : Promise.resolve(null),
+    const pages = await Promise.all([1, 2, 3].map((p) => getJson(`${TMDB}/movie/now_playing?api_key=${encodeURIComponent(key() as string)}&region=KR&language=ko-KR&page=${p}`, {}, 3500) as Promise<{ results?: { id: number }[] }>));
+    const ids = new Set(pages.flatMap((d) => (d.results ?? []).map((r) => r.id)));
+    nowPlaying = { at: Date.now(), ids };
+    return ids;
+  } catch { return null; }
+}
+
+type Crew = { name?: string; job?: string; department?: string; total_episode_count?: number; jobs?: { job?: string; episode_count?: number }[] };
+const names = (list: (string | undefined)[], n: number) => Array.from(new Set(list.filter((x): x is string => Boolean(x)))).slice(0, n).join(", ").slice(0, 100);
+
+/**
+ * 확정한 작품의 감독·출연진과 상영·방영 상태를 TMDB에서 읽습니다(AI 추측이 아님).
+ * 감독이 비지 않도록 여러 곳을 차례로 찾습니다: 영화=크레딧의 Director→연출 부서, 드라마=에피소드 연출(많이 맡은 순)→만든 사람→크레딧의 Director.
+ * 상태: 영화는 상영 중/재개봉/개봉연도, 드라마는 방영 중 또는 N부작·방영 시작 연도.
+ */
+export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<ScreenDetails | null> {
+  const k = encodeURIComponent(key() as string);
+  const path = kind === "film" ? "movie" : "tv";
+  try {
+    const credits = getJson(`${TMDB}/${path}/${tmdbId}/credits?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ cast?: { name?: string; character?: string }[]; crew?: Crew[] }>;
+    if (kind === "film") {
+      const [cr, detail, rel, playing] = await Promise.all([
+        credits,
+        getJson(`${TMDB}/movie/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ runtime?: number; release_date?: string }>,
+        getJson(`${TMDB}/movie/${tmdbId}/release_dates?api_key=${k}`, {}, 3000).catch(() => null) as Promise<{ results?: { iso_3166_1?: string; release_dates?: { type?: number; release_date?: string }[] }[] } | null>,
+        nowPlayingIds(),
+      ]);
+      const top = (cr.cast ?? []).filter((c) => c.name).slice(0, 4);
+      const crew = cr.crew ?? [];
+      const creator = names(crew.filter((c) => c.job === "Director").map((c) => c.name), 2) || names(crew.filter((c) => c.department === "Directing").map((c) => c.name), 2);
+      // 한국 극장 개봉일(2=제한 개봉, 3=극장 개봉) 중 가장 이른 날이 최초 개봉, 없으면 세계 개봉일
+      const krDates = (rel?.results?.find((r) => r.iso_3166_1 === "KR")?.release_dates ?? []).filter((d) => (d.type === 2 || d.type === 3) && d.release_date).map((d) => Date.parse(d.release_date as string)).filter((t) => !Number.isNaN(t)).sort((a, b) => a - b);
+      const first = krDates[0] ?? Date.parse(detail.release_date ?? "");
+      const year = Number.isNaN(first) || first === undefined ? String(detail.release_date ?? "").slice(0, 4) : String(new Date(first).getUTCFullYear());
+      const isPlaying = playing?.has(tmdbId) === true;
+      const reopened = isPlaying && !Number.isNaN(first) && first !== undefined && Date.now() - first > 365 * DAY;
+      return {
+        creator,
+        cast: top.map((c) => c.name as string),
+        characters: top.filter((c) => c.character).map((c) => `${String(c.character).slice(0, 30)}(${c.name})`),
+        lengthInfo: detail.runtime ? `${detail.runtime}분` : "",
+        completionStatus: isPlaying ? (reopened ? "재개봉" : "상영중") : year,
+      };
+    }
+    const [cr, detail, agg] = await Promise.all([
+      credits,
+      getJson(`${TMDB}/tv/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ created_by?: { name?: string }[]; status?: string; number_of_episodes?: number; number_of_seasons?: number; first_air_date?: string; last_air_date?: string; next_episode_to_air?: unknown }>,
+      getJson(`${TMDB}/tv/${tmdbId}/aggregate_credits?api_key=${k}&language=ko-KR`, {}, 3000).catch(() => null) as Promise<{ crew?: Crew[] } | null>,
     ]);
     const top = (cr.cast ?? []).filter((c) => c.name).slice(0, 4);
-    const director = kind === "film" ? cr.crew?.find((c) => c.job === "Director")?.name : detail?.created_by?.[0]?.name;
+    const directors = (agg?.crew ?? []).filter((c) => (c.jobs ?? []).some((j) => /director/i.test(j.job ?? ""))).sort((a, b) => (b.total_episode_count ?? 0) - (a.total_episode_count ?? 0));
+    const creator = names(directors.map((c) => c.name), 2) || names((detail.created_by ?? []).map((c) => c.name), 2) || names((cr.crew ?? []).filter((c) => c.job === "Director").map((c) => c.name), 2);
+    const last = Date.parse(detail.last_air_date ?? "");
+    const airing = Boolean(detail.next_episode_to_air) || (detail.status === "Returning Series" && !Number.isNaN(last) && Date.now() - last < 45 * DAY);
+    const seasons = detail.number_of_seasons ?? 0, eps = detail.number_of_episodes ?? 0;
     return {
-      creator: String(director ?? "").slice(0, 100),
-      cast: top.map((c) => c.name as string).slice(0, 4),
-      characters: top.filter((c) => c.character).map((c) => `${String(c.character).slice(0, 30)}(${c.name})`).slice(0, 4),
+      creator,
+      cast: top.map((c) => c.name as string),
+      characters: top.filter((c) => c.character).map((c) => `${String(c.character).slice(0, 30)}(${c.name})`),
+      lengthInfo: seasons > 1 ? `${seasons}시즌` : eps ? `${eps}부작` : "",
+      completionStatus: airing ? "방영 중" : String(detail.first_air_date ?? "").slice(0, 4),
     };
   } catch { return null; }
 }

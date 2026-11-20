@@ -1,6 +1,6 @@
 import { MEDIA_LABEL, type Media } from "./data";
 import { sanitizeItem, normalizeMedia, itemKey, type RecItem } from "./item";
-import { creditsOf, gatherScreenCandidates, koreaProviders, type ScreenCandidate } from "./screen-candidates";
+import { gatherScreenCandidates, koreaProviders, screenDetails, type ScreenCandidate } from "./screen-candidates";
 import { FALLBACK_KEYWORDS, WEBTOON_KEYWORDS, gatherWebtoonCandidates, trimSides, type WebtoonCandidate } from "./candidates";
 
 const ALL_MEDIA: Media[] = ["book", "film", "drama", "webtoon"];
@@ -200,13 +200,15 @@ const posterProxy = (u: string | null) => (u ? `/api/cover-proxy?url=${encodeURI
  * 볼 수 있는 작품을 앞에, 서비스 중단 작품은 뒤에 두고 최대 2편만 남깁니다. 해당 매체의 후보가 없으면 손대지 않습니다.
  */
 async function screenItemFrom(c: ScreenCandidate, base: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const [fresh, cr] = await Promise.all([koreaProviders(c.kind, c.tmdbId), creditsOf(c.kind, c.tmdbId)]);
+  const [fresh, cr] = await Promise.all([koreaProviders(c.kind, c.tmdbId), screenDetails(c.kind, c.tmdbId)]);
   const otts = fresh ? fresh.otts : c.otts;
   const available = fresh ? fresh.any && (otts.length > 0 || c.availability === "available") : c.availability === "available";
   const gone = !available || (otts.length === 0 && c.availability === "discontinued");
   return {
     ...base, title: c.title, originalTitle: c.originalTitle || undefined, releaseYear: c.year, coverImageUrl: posterProxy(c.posterUrl), verified: true,
     creator: cr?.creator ?? "", cast: cr?.cast ?? [], characters: cr?.characters ?? [],
+    // 상영·방영 상태와 분량은 TMDB 값으로 정합니다(AI가 쓴 "완결" 등을 쓰지 않음).
+    ...(cr ? { lengthInfo: cr.lengthInfo || undefined, completionStatus: cr.completionStatus } : {}),
     // 작품별 제공 정보에 구독 OTT가 없으면 목록에 있던 OTT를 그대로 믿지 않습니다(구매·대여만 가능하면 유튜브 링크만).
     recommendedPlatforms: gone ? ["유튜브"] : fresh ? (otts.length ? otts : ["유튜브"]) : c.otts,
     availability: gone ? "discontinued" : "available",
