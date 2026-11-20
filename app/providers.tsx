@@ -28,8 +28,7 @@ type Ctx = ArchiveStore & {
   removeHistory: (id: string) => void;
   setTasteProfile: (p: TasteProfile | null) => void;
   /** 보관함의 영화·시리즈 감독·출연진·분량·상영/방영 상태를 TMDB 정보로 갱신합니다(12시간에 한 번). */
-  syncScreenInfo: () => Promise<void>;
-  syncCovers: () => Promise<void>;
+  syncArchive: () => Promise<void>;
   exportJson: () => string;
   importJson: (raw: string) => { ok: boolean; error?: string };
 };
@@ -128,68 +127,56 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
     setStore((p) => ({ ...p, bookmarks: p.bookmarks.map((b) => (b.key === key ? { ...b, verifiedAccess: access, updatedAt: now() } : b)) }));
   }, []);
 
-  const syncScreenInfo = useCallback(async () => {
+  /**
+   * 보관함 반영 규칙: 보관함을 열 때마다 저장된 모든 작품(책·영화·시리즈·웹툰)을 최신 정보로 다시 읽어 바뀐 내용을 그대로 반영합니다.
+   * - 같은 작품을 10분 안에 다시 읽지는 않습니다(호출량). 단, 아래 ARCHIVE_SYNC_VER가 바뀌면 모든 작품을 한 번 다시 읽습니다.
+   * - 새 정보를 찾으면 비어 있지 않은 값으로 덮어쓰고, 못 찾은 작품은 저장된 값을 그대로 둡니다(일시 오류 포함).
+   * - 표지는 이번에 찾지 못했고 규칙 버전이 바뀐 경우에만 지웁니다(제목이 비슷한 다른 작품의 표지가 남는 것을 막기 위해).
+   * 제목 매칭·표기·출처 규칙을 바꾸면 ARCHIVE_SYNC_VER를 올립니다.
+   */
+  const ARCHIVE_SYNC_VER = 4; // 2: 인물·극중 이름 한글화, 3: 한글 제목 조회·원제 저장, 4: 전 매체 갱신·표지 제목/저자 일치
+  const ARCHIVE_STALE_MS = 10 * 60 * 1000;
+  type Patch = { originalTitle?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string; releaseYear?: string; sourceUrl?: string; coverImageUrl?: string };
+  const syncArchive = useCallback(async () => {
     if (syncing.current) return;
-    const STALE = 12 * 60 * 60 * 1000;
-    const SCREEN_SYNC_VER = 3; // 2: 인물·극중 이름 한글화, 3: 한글 제목 조회 보완·원제 저장
-    const targets = storeRef.current.bookmarks.filter((b) => (b.item.media === "film" || b.item.media === "drama") && !(b.screenSyncVer === SCREEN_SYNC_VER && b.screenSyncedAt && Date.now() - Date.parse(b.screenSyncedAt) < STALE));
+    const targets = storeRef.current.bookmarks.filter((b) => !(b.syncVer === ARCHIVE_SYNC_VER && b.syncedAt && Date.now() - Date.parse(b.syncedAt) < ARCHIVE_STALE_MS));
     if (targets.length === 0) return;
     syncing.current = true;
     try {
       for (let i = 0; i < targets.length; i += 10) {
         const chunk = targets.slice(i, i + 10);
-        let results: ({ originalTitle?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string } | null)[];
+        let results: (Patch | null)[];
         try {
-          const res = await fetch("/api/works/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: chunk.map((b) => ({ media: b.item.media, title: b.item.title, year: b.item.releaseYear, originalTitle: b.item.originalTitle, englishTitle: b.item.englishTitle })) }) });
+          const res = await fetch("/api/works/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: chunk.map((b) => ({ media: b.item.media, title: b.item.title, year: b.item.releaseYear, creator: b.item.creator, originalTitle: b.item.originalTitle, englishTitle: b.item.englishTitle })) }) });
           if (!res.ok) break;
-          results = ((await res.json()) as { results?: typeof results }).results ?? [];
+          results = ((await res.json()) as { results?: (Patch | null)[] }).results ?? [];
         } catch { break; }
+        // 갱신에서 표지를 못 받은 작품은 표지 조회(제목·저자가 맞는 표지만)로 다시 찾습니다.
+        const covers = await Promise.all(chunk.map(async (b, idx) => {
+          if (results[idx]?.coverImageUrl) return results[idx]?.coverImageUrl;
+          try {
+            const res = await fetch("/api/works/cover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: b.item.title, originalTitle: b.item.originalTitle, englishTitle: b.item.englishTitle, creator: b.item.creator, media: b.item.media, releaseYear: b.item.releaseYear }) });
+            if (!res.ok) return undefined; // 일시 오류: 저장된 표지 유지
+            return ((await res.json()) as { coverImageUrl?: string | null }).coverImageUrl ?? null;
+          } catch { return undefined; }
+        }));
         const stamp = new Date().toISOString();
         setStore((p) => ({
           ...p,
           bookmarks: p.bookmarks.map((b) => {
             const idx = chunk.findIndex((c) => c.key === b.key);
             if (idx < 0) return b;
-            const r = results[idx];
-            if (!r) return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER }; // 못 찾은 작품은 저장된 값을 그대로 두고, 12시간 뒤 다시 시도
-            const it = b.item;
-            return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER, item: { ...it, originalTitle: it.originalTitle || (r.originalTitle && r.originalTitle !== it.title ? r.originalTitle : undefined), creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.characters.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus } };
+            const it = b.item, r = results[idx], c = covers[idx];
+            const versionChanged = b.syncVer !== ARCHIVE_SYNC_VER;
+            const cover = c ? c : c === null && versionChanged ? undefined : it.coverImageUrl;
+            const next = r
+              ? { ...it, originalTitle: it.originalTitle || (r.originalTitle && r.originalTitle !== it.title ? r.originalTitle : undefined), creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.characters.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus, releaseYear: r.releaseYear || it.releaseYear, sourceUrl: r.sourceUrl || it.sourceUrl, coverImageUrl: cover }
+              : { ...it, coverImageUrl: cover };
+            return { ...b, syncedAt: stamp, syncVer: ARCHIVE_SYNC_VER, item: next };
           }),
         }));
       }
     } finally { syncing.current = false; }
-  }, []);
-
-  // 제목이 비슷한 다른 작품의 표지가 저장된 경우를 바로잡기 위해, 보관함을 열 때 표지를 한 번 다시 조회합니다(COVER_SYNC_VER가 바뀔 때마다).
-  const coverSyncing = useRef(false);
-  const syncCovers = useCallback(async () => {
-    if (coverSyncing.current) return;
-    const COVER_SYNC_VER = 1; // 1: 제목 포함만으로는 같은 작품으로 보지 않음
-    const targets = storeRef.current.bookmarks.filter((b) => b.coverSyncVer !== COVER_SYNC_VER);
-    if (targets.length === 0) return;
-    coverSyncing.current = true;
-    try {
-      for (let i = 0; i < targets.length; i += 3) {
-        const chunk = targets.slice(i, i + 3);
-        const urls = await Promise.all(chunk.map(async (b) => {
-          try {
-            const res = await fetch("/api/works/cover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: b.item.title, originalTitle: b.item.originalTitle, englishTitle: b.item.englishTitle, creator: b.item.creator, media: b.item.media, releaseYear: b.item.releaseYear }) });
-            if (!res.ok) return undefined; // 일시 오류: 저장된 표지를 그대로 두고 다음에 다시 시도
-            return ((await res.json()) as { coverImageUrl?: string | null }).coverImageUrl ?? null;
-          } catch { return undefined; }
-        }));
-        setStore((p) => ({
-          ...p,
-          bookmarks: p.bookmarks.map((b) => {
-            const idx = chunk.findIndex((c) => c.key === b.key);
-            if (idx < 0) return b;
-            const u = urls[idx];
-            if (u === undefined) return b;
-            return { ...b, coverSyncVer: COVER_SYNC_VER, item: { ...b.item, coverImageUrl: u ?? undefined } };
-          }),
-        }));
-      }
-    } finally { coverSyncing.current = false; }
   }, []);
 
   const removeBookmark = useCallback((key: string) => {
@@ -237,8 +224,8 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<Ctx>(
-    () => ({ ...store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncScreenInfo, syncCovers, exportJson, importJson }),
-    [store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncScreenInfo, syncCovers, exportJson, importJson],
+    () => ({ ...store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncArchive, exportJson, importJson }),
+    [store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, syncArchive, exportJson, importJson],
   );
 
   return (

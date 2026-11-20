@@ -29,6 +29,9 @@ export type Bookmark = {
   screenSyncVer?: number;
   /** 표지를 다시 조회한 규칙 버전(다르면 보관함을 열 때 한 번 다시 조회) */
   coverSyncVer?: number;
+  /** 보관함을 열 때 모든 매체의 최신 정보로 마지막 갱신한 시각과 갱신 규칙 버전 */
+  syncedAt?: string;
+  syncVer?: number;
   savedAt: string;
   updatedAt: string;
 };
@@ -107,7 +110,7 @@ export function sanitizeStore(raw: unknown): ArchiveStore {
       seen.add(key);
       const status = STATUSES.find((s) => s === b.status) ?? "want";
       const rating = typeof b.rating === "number" && b.rating >= 0 && b.rating <= 5 ? Math.round(b.rating) : 0;
-      bookmarks.push({ key, item, status, rating, memo: str(b.memo, 1000), verifiedAccess: sanitizeAccess(b.verifiedAccess), screenSyncVer: typeof b.screenSyncVer === "number" ? b.screenSyncVer : undefined, coverSyncVer: typeof b.coverSyncVer === "number" ? b.coverSyncVer : undefined, screenSyncedAt: typeof b.screenSyncedAt === "string" && !Number.isNaN(Date.parse(b.screenSyncedAt)) ? b.screenSyncedAt : undefined, savedAt: iso(b.savedAt), updatedAt: iso(b.updatedAt) });
+      bookmarks.push({ key, item, status, rating, memo: str(b.memo, 1000), verifiedAccess: sanitizeAccess(b.verifiedAccess), screenSyncVer: typeof b.screenSyncVer === "number" ? b.screenSyncVer : undefined, coverSyncVer: typeof b.coverSyncVer === "number" ? b.coverSyncVer : undefined, syncVer: typeof b.syncVer === "number" ? b.syncVer : undefined, syncedAt: typeof b.syncedAt === "string" && !Number.isNaN(Date.parse(b.syncedAt)) ? b.syncedAt : undefined, screenSyncedAt: typeof b.screenSyncedAt === "string" && !Number.isNaN(Date.parse(b.screenSyncedAt)) ? b.screenSyncedAt : undefined, savedAt: iso(b.savedAt), updatedAt: iso(b.updatedAt) });
     }
   }
   const favoriteSeeds: FavoriteSeed[] = [];

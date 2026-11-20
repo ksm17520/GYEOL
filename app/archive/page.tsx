@@ -27,9 +27,9 @@ export default function ArchivePage() {
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 보관함을 열 때 영화·시리즈의 감독·상태를 최신 TMDB 정보로 갱신합니다.
-  const { ready, syncScreenInfo, syncCovers } = a;
-  useEffect(() => { if (ready) { void syncScreenInfo(); void syncCovers(); } }, [ready, syncScreenInfo, syncCovers]);
+  // 보관함을 열 때마다 모든 작품(책·영화·시리즈·웹툰)을 최신 정보로 갱신합니다(규칙: providers.tsx의 syncArchive).
+  const { ready, syncArchive } = a;
+  useEffect(() => { if (ready) void syncArchive(); }, [ready, syncArchive]);
 
   const items = a.bookmarks.filter((b) => (status === "all" || b.status === status) && (media === "all" || b.item.media === media));
 

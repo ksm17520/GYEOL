@@ -237,9 +237,10 @@ const koNames = async (list: Person[], n: number): Promise<string> => {
 };
 const keepCharacter = (character: string | undefined) => Boolean(character);
 
-export type ScreenDetails = { /** 확인용: 영화 감독·배우를 KMDb에서 가져왔는지(ok) 또는 이유 */ kmdb?: string; /** TMDB의 원제(보관함에 저장해 다음 조회에 쓰임) */ originalTitle?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string };
+export type ScreenDetails = { /** 확인용: 영화 감독·배우를 KMDb에서 가져왔는지(ok) 또는 이유 */ kmdb?: string; /** TMDB의 원제(보관함에 저장해 다음 조회에 쓰임) */ originalTitle?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string; /** TMDB 포스터(cover-proxy 주소) */ coverImageUrl?: string };
 
 const DAY = 86400_000;
+const tmdbPoster = (p?: string | null) => (p && /^\/[\w.-]+$/.test(p) ? `/api/cover-proxy?url=${encodeURIComponent(`https://image.tmdb.org/t/p/w500${p}`)}` : undefined);
 let nowPlaying: { at: number; ids: Set<number> } | null = null;
 
 /** 지금 한국 극장에서 상영 중인 영화 번호들(재개봉 포함). 30분 캐시. 실패하면 null(상영 여부를 모름). */
@@ -269,7 +270,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
     if (kind === "film") {
       const [cr, detail, rel, playing] = await Promise.all([
         credits,
-        getJson(`${TMDB}/movie/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ runtime?: number; release_date?: string; title?: string; original_title?: string }>,
+        getJson(`${TMDB}/movie/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ runtime?: number; release_date?: string; title?: string; original_title?: string; poster_path?: string | null }>,
         getJson(`${TMDB}/movie/${tmdbId}/release_dates?api_key=${k}`, {}, 3000).catch(() => null) as Promise<{ results?: { iso_3166_1?: string; release_dates?: { type?: number; release_date?: string }[] }[] } | null>,
         nowPlayingIds(),
       ]);
@@ -292,6 +293,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       return {
         kmdb: nvr.status,
         originalTitle: String(detail.original_title ?? "").slice(0, 100),
+        coverImageUrl: tmdbPoster(detail.poster_path),
         creator,
         cast: castShown,
         // 극중 이름은 TMDB 표기(KMDb는 극중 이름을 주지 않음). 배우 이름은 위에서 정한 한글 표기와 맞춥니다.
@@ -302,7 +304,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
     }
     const [cr, detail, agg] = await Promise.all([
       credits,
-      getJson(`${TMDB}/tv/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ created_by?: Person[]; original_name?: string; original_language?: string; status?: string; number_of_episodes?: number; number_of_seasons?: number; first_air_date?: string; last_air_date?: string; next_episode_to_air?: unknown }>,
+      getJson(`${TMDB}/tv/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ created_by?: Person[]; poster_path?: string | null; original_name?: string; original_language?: string; status?: string; number_of_episodes?: number; number_of_seasons?: number; first_air_date?: string; last_air_date?: string; next_episode_to_air?: unknown }>,
       getJson(`${TMDB}/tv/${tmdbId}/aggregate_credits?api_key=${k}&language=ko-KR`, {}, 3000).catch(() => null) as Promise<{ crew?: Crew[] } | null>,
     ]);
     const top = (cr.cast ?? []).filter((c) => c.name).slice(0, 4);
@@ -314,6 +316,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
     const seasons = detail.number_of_seasons ?? 0, eps = detail.number_of_episodes ?? 0;
     return {
       originalTitle: String(detail.original_name ?? "").slice(0, 100),
+      coverImageUrl: tmdbPoster(detail.poster_path),
       creator,
       cast: castKo,
       characters: top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),

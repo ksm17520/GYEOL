@@ -210,3 +210,16 @@ export async function gatherWebtoonCandidates(keywords: string[], opts: { finish
   await fillDetails(picked, 18, false);
   return picked.map((c, i) => ({ ...c, id: `c${i + 1}` }));
 }
+
+/**
+ * 보관함에 저장된 웹툰을 네이버웹툰·카카오페이지·카카오웹툰 검색에서 다시 찾아 최신 작가·표지·완결 여부를 읽습니다(제목이 같은 작품만).
+ * 못 찾거나 확장 출처가 꺼져 있으면 null.
+ */
+export async function refreshWebtoon(title: string): Promise<{ title: string; creator: string; coverImageUrl: string | null; finished?: boolean } | null> {
+  if (!EXTENDED_SOURCES || !title.trim()) return null;
+  const rounds = await Promise.all([naver(title), kakaoPage(title, false), kakaoPage(title, true), kakaoWebtoon(title)]);
+  const c = mergeCandidates(rounds.flat(), 30).find((x) => sameTitle(x.title, title));
+  if (!c) return null;
+  await fillDetails([c], 1, true);
+  return { title: c.title, creator: c.creator, coverImageUrl: c.coverImageUrl, finished: c.finished };
+}

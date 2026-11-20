@@ -145,3 +145,16 @@ export async function yes24Cover(title: string, author: string): Promise<string 
   }
   return null;
 }
+
+/** 보관함 갱신용: 제목이 같고(저자가 있으면 저자도 겹치는) 책 한 권의 최신 정보를 예스24에서 읽습니다. 못 찾으면 null. */
+export async function findBook(title: string, author: string): Promise<BookCandidate | null> {
+  if (!key()) return null;
+  const items = await search(title, "RELATION", 10);
+  const wantAuthor = author.replace(/\s+/g, "");
+  for (const x of items) {
+    const c = toCandidate(x);
+    if (!c || !sameTitle(mainTitle(c.title), title)) continue;
+    if (!wantAuthor || c.author.split(",").some((a) => a.replace(/\s+/g, "") && wantAuthor.includes(a.replace(/\s+/g, "")))) return { id: "", ...c };
+  }
+  return null;
+}
