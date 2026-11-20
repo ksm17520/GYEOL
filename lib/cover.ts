@@ -11,10 +11,10 @@ export type CoverTarget = { title: string; originalTitle?: string; englishTitle?
 export const EXTENDED_SOURCES = (process.env.COVER_EXTENDED_SOURCES ?? "on").toLowerCase() !== "off";
 
 // 공개 API가 제공하는 이미지 호스트
-const EXACT_HOSTS = new Set(["covers.openlibrary.org", "upload.wikimedia.org", "static.tvmaze.com", "s4.anilist.co"]);
+const EXACT_HOSTS = new Set(["covers.openlibrary.org", "upload.wikimedia.org", "static.tvmaze.com", "s4.anilist.co", "image.tmdb.org"]);
 const SUFFIX_HOSTS = [".mzstatic.com", ".archive.org"];
 // 확장 출처의 이미지 호스트 (EXTENDED_SOURCES가 켜져 있을 때만 허용)
-const EXTENDED_HOSTS = new Set(["image.yes24.com", "image.aladin.co.kr", "contents.kyobobook.co.kr", "image-comic.pstatic.net", "shared-comic.pstatic.net", "m.media-amazon.com"]);
+const EXTENDED_HOSTS = new Set(["image.yes24.com", "image.aladin.co.kr", "contents.kyobobook.co.kr", "image-comic.pstatic.net", "shared-comic.pstatic.net", "m.media-amazon.com", "movie-phinf.pstatic.net", "search.pstatic.net"]);
 
 export function isAllowedCoverHost(host: string): boolean {
   return EXACT_HOSTS.has(host) || SUFFIX_HOSTS.some((s) => host.endsWith(s)) || (EXTENDED_SOURCES && EXTENDED_HOSTS.has(host));
@@ -25,7 +25,8 @@ export function refererFor(host: string): string | undefined {
   if (host.includes("yes24.com")) return "https://www.yes24.com/";
   if (host.includes("aladin.co.kr")) return "https://www.aladin.co.kr/";
   if (host.includes("kyobobook.co.kr")) return "https://www.kyobobook.co.kr/";
-  if (host.includes("pstatic.net")) return "https://comic.naver.com/";
+  if (host.startsWith("image-comic") || host.startsWith("shared-comic")) return "https://comic.naver.com/";
+  if (host.includes("pstatic.net")) return "https://search.naver.com/";
   if (host.includes("media-amazon.com")) return "https://www.imdb.com/";
   return undefined;
 }
@@ -103,6 +104,42 @@ async function naverWebtoon(title: string): Promise<string | null> {
     };
     const pool = [...(d.searchWebtoonResult?.searchViewList ?? []), ...(d.searchNbooksComicResult?.searchViewList ?? [])];
     return pool.find((x) => x.thumbnailUrl && x.titleName && close(x.titleName, title))?.thumbnailUrl ?? null;
+  } catch { return null; }
+}
+
+// TMDB 공식 API (무료 키 필요): 국내 영화·드라마까지 가장 폭넓게 찾습니다. TMDB_API_KEY가 없으면 건너뜁니다.
+async function tmdb(t: CoverTarget, kind: "film" | "drama"): Promise<string | null> {
+  const key = process.env.TMDB_API_KEY;
+  if (!key) return null;
+  const year = Number(t.releaseYear) || 0;
+  const queries = Array.from(new Set([t.title, t.originalTitle, t.englishTitle].filter((x): x is string => Boolean(x))));
+  for (const q of queries) {
+    try {
+      const path = kind === "film" ? "movie" : "tv";
+      const d = (await getJson(`https://api.themoviedb.org/3/search/${path}?api_key=${encodeURIComponent(key)}&language=ko-KR&query=${encodeURIComponent(q)}`)) as {
+        results?: { title?: string; name?: string; original_title?: string; original_name?: string; poster_path?: string | null; release_date?: string; first_air_date?: string; popularity?: number }[];
+      };
+      const scored = (d.results ?? []).filter((x) => x.poster_path).slice(0, 8).map((x) => {
+        let score = 0;
+        const names = [x.title, x.name, x.original_title, x.original_name].filter((n): n is string => Boolean(n));
+        if (names.some((n) => close(n, q))) score += 5;
+        const y = Number((x.release_date || x.first_air_date || "").slice(0, 4)) || 0;
+        if (year && y && Math.abs(y - year) <= 1) score += 4;
+        return { x, score };
+      }).sort((a, b) => b.score - a.score);
+      const best = scored[0];
+      if (best && best.score >= 5) return `https://image.tmdb.org/t/p/w500${best.x.poster_path}`;
+    } catch { /* 다음 후보 */ }
+  }
+  return null;
+}
+
+// 네이버 검색 결과 페이지의 영화·드라마 포스터 (비공식, EXTENDED_SOURCES). 페이지 구조가 바뀌면 동작하지 않습니다.
+async function naverPoster(title: string, kind: "film" | "drama"): Promise<string | null> {
+  try {
+    const html = await getText(`https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(`${title} ${kind === "film" ? "영화" : "드라마"}`)}`, 3500);
+    const m = html.match(/https:\/\/movie-phinf\.pstatic\.net\/[^"'\s>)\\]+\.(?:jpg|jpeg|png)[^"'\s>)\\]*/i);
+    return m?.[0]?.replace(/&amp;/g, "&") ?? null;
   } catch { return null; }
 }
 
@@ -184,9 +221,9 @@ export async function resolveCoverUrl(t: CoverTarget): Promise<string | null> {
     raw = (EXTENDED_SOURCES ? (await yes24(t.title, t.creator)) || (await aladin(t.title, t.creator)) : null) ||
       (await openLibrary(t.englishTitle || t.originalTitle || t.title)) || (await itunes([t.title, t.englishTitle ?? ""], "ebook")) || (await wikipedia([`${t.title} ${t.creator}`.trim(), t.title]));
   } else if (t.media === "film") {
-    raw = (EXTENDED_SOURCES ? await imdb(t, "film") : null) || (await itunes([t.title, t.englishTitle ?? ""], "movie")) || (await wikipedia([`${t.title} 영화`, t.englishTitle || t.title]));
+    raw = (await tmdb(t, "film")) || (EXTENDED_SOURCES ? (await imdb(t, "film")) || (await naverPoster(t.title, "film")) : null) || (await itunes([t.title, t.englishTitle ?? ""], "movie")) || (await wikipedia([`${t.title} 영화`, t.englishTitle || t.title]));
   } else if (t.media === "drama") {
-    raw = (EXTENDED_SOURCES ? await imdb(t, "drama") : null) || (await tvmaze(intl)) || (await wikipedia([`${t.title} 드라마`, t.englishTitle || t.title]));
+    raw = (await tmdb(t, "drama")) || (EXTENDED_SOURCES ? (await imdb(t, "drama")) || (await naverPoster(t.title, "drama")) : null) || (await tvmaze(intl)) || (await wikipedia([`${t.title} 드라마`, t.englishTitle || t.title]));
   } else {
     raw = (EXTENDED_SOURCES ? (await naverWebtoon(t.title)) || (await yes24(t.title, t.creator)) || (await aladin(t.title, t.creator)) : null) ||
       (await anilist([t.title, t.englishTitle ?? ""])) || (await wikipedia([t.title, t.englishTitle ?? ""]));
