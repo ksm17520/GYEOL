@@ -26,6 +26,7 @@ Claude Code가 매번 가장 먼저 읽는 작업 규칙입니다. 문서 우선
 | `GEMINI_MODEL` | 기본 `gemini-3.5-flash-lite`(무료 등급 분당 15회·하루 500회. flash 계열은 분당 5회·하루 20회라 금방 429) |
 | `CLOVASTUDIO_API_KEY` | (선택) 네이버 CLOVA Studio(HyperCLOVA X). 있으면 Gemini 실패 시 이어서 사용 (`AI_PROVIDERS`로 순서 조정) |
 | `TMDB_API_KEY` | 영화·드라마 포스터 (선택) |
+| `KOBIS_API_KEY` | (선택) 영화진흥위원회 KOBIS 오픈 API(공식). 국내 개봉 영화의 감독·배우·극중 이름을 한글로 반영(드라마는 미지원) |
 | `COVER_EXTENDED_SOURCES` | 예스24·알라딘·IMDb·네이버 비공식 출처. **유료 결제를 열기 전에 `off`** |
 
 ## 5. 작업 규칙

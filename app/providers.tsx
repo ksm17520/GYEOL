@@ -130,7 +130,8 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
   const syncScreenInfo = useCallback(async () => {
     if (syncing.current) return;
     const STALE = 12 * 60 * 60 * 1000;
-    const targets = storeRef.current.bookmarks.filter((b) => (b.item.media === "film" || b.item.media === "drama") && !(b.screenSyncedAt && Date.now() - Date.parse(b.screenSyncedAt) < STALE));
+    const SCREEN_SYNC_VER = 2; // 2: 인물·극중 이름 한글화
+    const targets = storeRef.current.bookmarks.filter((b) => (b.item.media === "film" || b.item.media === "drama") && !(b.screenSyncVer === SCREEN_SYNC_VER && b.screenSyncedAt && Date.now() - Date.parse(b.screenSyncedAt) < STALE));
     if (targets.length === 0) return;
     syncing.current = true;
     try {
@@ -149,9 +150,9 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
             const idx = chunk.findIndex((c) => c.key === b.key);
             if (idx < 0) return b;
             const r = results[idx];
-            if (!r) return { ...b, screenSyncedAt: stamp }; // 못 찾은 작품은 저장된 값을 그대로 두고, 12시간 뒤 다시 시도
+            if (!r) return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER }; // 못 찾은 작품은 저장된 값을 그대로 두고, 12시간 뒤 다시 시도
             const it = b.item;
-            return { ...b, screenSyncedAt: stamp, item: { ...it, creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.characters.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus } };
+            return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER, item: { ...it, creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.cast.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus } };
           }),
         }));
       }

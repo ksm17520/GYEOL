@@ -105,7 +105,7 @@ export default function ArchivePage() {
                     <div>
                       <div className="mono muted">{MEDIA_LABEL[b.item.media]}{b.item.releaseYear ? ` · ${b.item.releaseYear}` : ""}{b.item.lengthInfo ? ` · ${b.item.lengthInfo}` : ""}</div>
                       <h3 className="font-editorial"><button className="title-btn" onClick={() => setDetail(b.item)}>{b.item.title}</button></h3>
-                      <div className="by">{b.item.media === "film" || b.item.media === "drama" ? `감독 ${directorLabel(b.item.creator)}` : b.item.creator}{b.item.cast.length > 0 ? ` · ${b.item.cast.slice(0, 3).join(", ")}` : ""}</div>
+                      <div className="by">{b.item.media === "film" ? `감독 ${directorLabel(b.item.creator)}` : b.item.media === "drama" ? "" : b.item.creator}{b.item.cast.length > 0 ? `${b.item.media === "drama" ? "" : " · "}${b.item.cast.slice(0, 3).join(", ")}` : ""}</div>
                     </div>
                     <button className="icon" aria-label="보관함에서 삭제" onClick={() => a.removeBookmark(b.key)}>🗑</button>
                   </div>

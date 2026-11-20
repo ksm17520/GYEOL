@@ -25,6 +25,8 @@ export type Bookmark = {
   verifiedAccess?: VerifiedAccess;
   /** 영화·드라마의 감독·상태를 TMDB 정보로 마지막으로 갱신한 시각 */
   screenSyncedAt?: string;
+  /** 갱신 규칙 버전. 규칙이 바뀌면 올려서 이미 갱신된 항목도 다시 갱신합니다. */
+  screenSyncVer?: number;
   savedAt: string;
   updatedAt: string;
 };
@@ -103,7 +105,7 @@ export function sanitizeStore(raw: unknown): ArchiveStore {
       seen.add(key);
       const status = STATUSES.find((s) => s === b.status) ?? "want";
       const rating = typeof b.rating === "number" && b.rating >= 0 && b.rating <= 5 ? Math.round(b.rating) : 0;
-      bookmarks.push({ key, item, status, rating, memo: str(b.memo, 1000), verifiedAccess: sanitizeAccess(b.verifiedAccess), screenSyncedAt: typeof b.screenSyncedAt === "string" && !Number.isNaN(Date.parse(b.screenSyncedAt)) ? b.screenSyncedAt : undefined, savedAt: iso(b.savedAt), updatedAt: iso(b.updatedAt) });
+      bookmarks.push({ key, item, status, rating, memo: str(b.memo, 1000), verifiedAccess: sanitizeAccess(b.verifiedAccess), screenSyncVer: typeof b.screenSyncVer === "number" ? b.screenSyncVer : undefined, screenSyncedAt: typeof b.screenSyncedAt === "string" && !Number.isNaN(Date.parse(b.screenSyncedAt)) ? b.screenSyncedAt : undefined, savedAt: iso(b.savedAt), updatedAt: iso(b.updatedAt) });
     }
   }
   const favoriteSeeds: FavoriteSeed[] = [];

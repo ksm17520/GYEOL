@@ -1,4 +1,5 @@
 import { getJson } from "./cover";
+import { kobisMovie } from "./kobis";
 
 export type ScreenKind = "film" | "drama";
 export type Availability = "available" | "discontinued";
@@ -186,6 +187,30 @@ export async function gatherScreenCandidates(
   return out;
 }
 
+const HANGUL = /[가-힯]/;
+const koCache = new Map<number, string>();
+/** 인물 이름을 한글로. 이미 한글이면 그대로, 아니면 TMDB 인물 정보(ko-KR)의 한글 이름·다른 이름에서 찾고, 없으면 원래 이름을 씁니다. */
+async function koName(id: number | undefined, name: string): Promise<string> {
+  if (!id || HANGUL.test(name)) return name;
+  const hit = koCache.get(id);
+  if (hit !== undefined) return hit;
+  let out = name;
+  try {
+    const p = (await getJson(`${TMDB}/person/${id}?api_key=${encodeURIComponent(key() as string)}&language=ko-KR`, {}, 2500)) as { name?: string; also_known_as?: string[] };
+    out = (p.name && HANGUL.test(p.name) ? p.name : (p.also_known_as ?? []).find((n) => HANGUL.test(n) && !/\s{2,}/.test(n))) || name;
+  } catch { return name; } // 일시 오류는 캐시하지 않습니다
+  if (koCache.size >= 2000) koCache.clear();
+  koCache.set(id, out);
+  return out;
+}
+type Person = { id?: number; name?: string };
+const koNames = async (list: Person[], n: number): Promise<string> => {
+  const seen = new Set<number | string>();
+  const uniq = list.filter((p) => p.name && !seen.has(p.id ?? p.name) && seen.add(p.id ?? p.name)).slice(0, n);
+  return names(await Promise.all(uniq.map((p) => koName(p.id, p.name as string))), n);
+};
+const keepCharacter = (character: string | undefined) => Boolean(character);
+
 export type ScreenDetails = { creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string };
 
 const DAY = 86400_000;
@@ -202,7 +227,7 @@ async function nowPlayingIds(): Promise<Set<number> | null> {
   } catch { return null; }
 }
 
-type Crew = { name?: string; job?: string; department?: string; total_episode_count?: number; jobs?: { job?: string; episode_count?: number }[] };
+type Crew = { id?: number; name?: string; job?: string; department?: string; total_episode_count?: number; jobs?: { job?: string; episode_count?: number }[] };
 const names = (list: (string | undefined)[], n: number) => Array.from(new Set(list.filter((x): x is string => Boolean(x)))).slice(0, n).join(", ").slice(0, 100);
 
 /**
@@ -214,17 +239,22 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
   const k = encodeURIComponent(key() as string);
   const path = kind === "film" ? "movie" : "tv";
   try {
-    const credits = getJson(`${TMDB}/${path}/${tmdbId}/credits?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ cast?: { name?: string; character?: string }[]; crew?: Crew[] }>;
+    const credits = getJson(`${TMDB}/${path}/${tmdbId}/credits?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ cast?: { id?: number; name?: string; character?: string }[]; crew?: Crew[] }>;
     if (kind === "film") {
       const [cr, detail, rel, playing] = await Promise.all([
         credits,
-        getJson(`${TMDB}/movie/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ runtime?: number; release_date?: string }>,
+        getJson(`${TMDB}/movie/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ runtime?: number; release_date?: string; title?: string; original_title?: string }>,
         getJson(`${TMDB}/movie/${tmdbId}/release_dates?api_key=${k}`, {}, 3000).catch(() => null) as Promise<{ results?: { iso_3166_1?: string; release_dates?: { type?: number; release_date?: string }[] }[] } | null>,
         nowPlayingIds(),
       ]);
       const top = (cr.cast ?? []).filter((c) => c.name).slice(0, 4);
       const crew = cr.crew ?? [];
-      const creator = names(crew.filter((c) => c.job === "Director").map((c) => c.name), 2) || names(crew.filter((c) => c.department === "Directing").map((c) => c.name), 2);
+      const directors = crew.filter((c) => c.job === "Director");
+      const [tmdbCreator, tmdbCast, nv] = await Promise.all([koNames(directors.length ? directors : crew.filter((c) => c.department === "Directing"), 2), Promise.all(top.map((c) => koName(c.id, c.name as string))), kobisMovie(detail.title ?? "", String(detail.release_date ?? "").slice(0, 4), detail.original_title ? [detail.original_title] : [])]);
+      // 국내 개봉작은 영화진흥위원회(KOBIS)의 한글 감독·배우·극중 이름을 우선하고, 없으면 TMDB 정보를 씁니다.
+      const creator = nv?.directors.length ? nv.directors.slice(0, 2).join(", ") : tmdbCreator;
+      const castKo = top.map((c, i) => tmdbCast[i]);
+      const castShown = nv?.actors.length ? nv.actors.slice(0, 4) : castKo;
       // 한국 극장 개봉일(2=제한 개봉, 3=극장 개봉) 중 가장 이른 날이 최초 개봉, 없으면 세계 개봉일
       const krDates = (rel?.results?.find((r) => r.iso_3166_1 === "KR")?.release_dates ?? []).filter((d) => (d.type === 2 || d.type === 3) && d.release_date).map((d) => Date.parse(d.release_date as string)).filter((t) => !Number.isNaN(t)).sort((a, b) => a - b);
       const first = krDates[0] ?? Date.parse(detail.release_date ?? "");
@@ -233,27 +263,29 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       const reopened = isPlaying && !Number.isNaN(first) && first !== undefined && Date.now() - first > 365 * DAY;
       return {
         creator,
-        cast: top.map((c) => c.name as string),
-        characters: top.filter((c) => c.character).map((c) => `${String(c.character).slice(0, 30)}(${c.name})`),
+        cast: castShown,
+        // 극중 이름: KOBIS에 있으면 그 한글 표기, 없으면 TMDB 표기
+        characters: nv?.characters.length ? nv.characters : top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),
         lengthInfo: detail.runtime ? `${detail.runtime}분` : "",
         completionStatus: isPlaying ? (reopened ? "재개봉" : "상영중") : year,
       };
     }
     const [cr, detail, agg] = await Promise.all([
       credits,
-      getJson(`${TMDB}/tv/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ created_by?: { name?: string }[]; status?: string; number_of_episodes?: number; number_of_seasons?: number; first_air_date?: string; last_air_date?: string; next_episode_to_air?: unknown }>,
+      getJson(`${TMDB}/tv/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ created_by?: Person[]; original_language?: string; status?: string; number_of_episodes?: number; number_of_seasons?: number; first_air_date?: string; last_air_date?: string; next_episode_to_air?: unknown }>,
       getJson(`${TMDB}/tv/${tmdbId}/aggregate_credits?api_key=${k}&language=ko-KR`, {}, 3000).catch(() => null) as Promise<{ crew?: Crew[] } | null>,
     ]);
     const top = (cr.cast ?? []).filter((c) => c.name).slice(0, 4);
     const directors = (agg?.crew ?? []).filter((c) => (c.jobs ?? []).some((j) => /director/i.test(j.job ?? ""))).sort((a, b) => (b.total_episode_count ?? 0) - (a.total_episode_count ?? 0));
-    const creator = names(directors.map((c) => c.name), 2) || names((detail.created_by ?? []).map((c) => c.name), 2) || names((cr.crew ?? []).filter((c) => c.job === "Director").map((c) => c.name), 2);
+    const crewDirectors = (cr.crew ?? []).filter((c) => c.job === "Director");
+    const [creator, castKo] = await Promise.all([koNames(directors.length ? directors : (detail.created_by ?? []).length ? (detail.created_by as Person[]) : crewDirectors, 2), Promise.all(top.map((c) => koName(c.id, c.name as string)))]);
     const last = Date.parse(detail.last_air_date ?? "");
     const airing = Boolean(detail.next_episode_to_air) || (detail.status === "Returning Series" && !Number.isNaN(last) && Date.now() - last < 45 * DAY);
     const seasons = detail.number_of_seasons ?? 0, eps = detail.number_of_episodes ?? 0;
     return {
       creator,
-      cast: top.map((c) => c.name as string),
-      characters: top.filter((c) => c.character).map((c) => `${String(c.character).slice(0, 30)}(${c.name})`),
+      cast: castKo,
+      characters: top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),
       lengthInfo: seasons > 1 ? `${seasons}시즌` : eps ? `${eps}부작` : "",
       completionStatus: airing ? "방영 중" : String(detail.first_air_date ?? "").slice(0, 4),
     };
