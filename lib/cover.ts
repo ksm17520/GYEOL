@@ -129,14 +129,46 @@ const toProxy = (raw: string | undefined): string | null => {
   } catch { return null; }
 };
 
+const KAKAO_HEADERS = { "Accept-Language": "ko", Accept: "application/json" };
+
+/** 카카오페이지에서 웹툰으로 올라 있는 작품 제목들 (비공식 검색 주소). */
+async function kakaoPageWebtoonTitles(keyword: string): Promise<string[]> {
+  try {
+    const d = (await getJson(`https://bff-page.kakao.com/api/gateway/api/v2/search/series?keyword=${encodeURIComponent(keyword)}&category_uid=0&is_complete=false&sort_type=ACCURACY&page=0&size=25`, { headers: { ...KAKAO_HEADERS, Referer: "https://page.kakao.com/" } })) as {
+      result?: { list?: { title?: string; category?: string }[] };
+    };
+    return (d.result?.list ?? []).filter((x) => x.category === "웹툰" && x.title).map((x) => x.title as string);
+  } catch { return []; }
+}
+
+/** 카카오웹툰에 올라 있는 작품 제목들 (비공식 검색 주소). */
+async function kakaoWebtoonTitles(keyword: string): Promise<string[]> {
+  try {
+    const d = (await getJson(`https://gateway-kw.kakao.com/search/v2/content?limit=30&offset=0&word=${encodeURIComponent(keyword)}`, { headers: { ...KAKAO_HEADERS, Referer: "https://webtoon.kakao.com/" } })) as {
+      data?: { content?: { title?: string }[] };
+    };
+    return (d.data?.content ?? []).filter((x) => x.title).map((x) => x.title as string);
+  } catch { return []; }
+}
+
+export type WebtoonOfficial = { title: string; coverImageUrl: string | null; platform: "네이버웹툰" | "카카오페이지" | "카카오웹툰" };
+
 /**
- * 네이버웹툰에 올라 있는 공식 제목을 찾습니다. AI가 적은 제목과 거의 같은 작품이 있으면 그 공식 제목(과 표지)을,
- * 없으면 null을 돌려줍니다. 비공식 출처이므로 COVER_EXTENDED_SOURCES가 꺼져 있으면 항상 null입니다.
+ * 웹툰 플랫폼(네이버웹툰·카카오페이지·카카오웹툰)에 실제로 올라 있는 공식 제목을 찾습니다.
+ * AI가 적은 제목과 거의 같은 작품이 있으면 그 플랫폼 표기를, 없으면 null을 돌려줍니다.
+ * 세 곳을 동시에 조회하고, 표지가 있는 네이버웹툰 결과를 우선합니다.
+ * 모두 비공식 출처이므로 COVER_EXTENDED_SOURCES가 꺼져 있으면 항상 null입니다.
  */
-export async function findWebtoonOfficial(title: string): Promise<{ title: string; coverImageUrl: string | null } | null> {
+export async function findWebtoonOfficial(title: string): Promise<WebtoonOfficial | null> {
   if (!EXTENDED_SOURCES || !title.trim()) return null;
-  const hit = (await naverWebtoonSearch(title)).find((x) => x.titleName && sameTitle(x.titleName, title));
-  return hit?.titleName ? { title: hit.titleName.slice(0, 100), coverImageUrl: toProxy(hit.thumbnailUrl) } : null;
+  const [naver, kakaoPage, kakaoWebtoon] = await Promise.all([naverWebtoonSearch(title), kakaoPageWebtoonTitles(title), kakaoWebtoonTitles(title)]);
+  const n = naver.find((x) => x.titleName && sameTitle(x.titleName, title));
+  if (n?.titleName) return { title: n.titleName.slice(0, 100), coverImageUrl: toProxy(n.thumbnailUrl), platform: "네이버웹툰" };
+  const kp = kakaoPage.find((t) => sameTitle(t, title));
+  if (kp) return { title: kp.slice(0, 100), coverImageUrl: null, platform: "카카오페이지" };
+  const kw = kakaoWebtoon.find((t) => sameTitle(t, title));
+  if (kw) return { title: kw.slice(0, 100), coverImageUrl: null, platform: "카카오웹툰" };
+  return null;
 }
 
 // TMDB 공식 API (무료 키 필요): 국내 영화·드라마까지 가장 폭넓게 찾습니다. TMDB_API_KEY가 없으면 건너뜁니다.

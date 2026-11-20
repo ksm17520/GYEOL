@@ -5,7 +5,13 @@ async function check(item: RecItem): Promise<RecItem> {
   // 웹툰: 네이버웹툰에 올라 있는 공식 제목과 거의 같으면 제목을 공식 표기로 바로잡고 표지를 채웁니다.
   if (item.media === "webtoon") {
     const official = await findWebtoonOfficial(item.title);
-    if (official) return { ...item, title: official.title, coverImageUrl: official.coverImageUrl ?? item.coverImageUrl, verified: true };
+    if (official) {
+      const fixed = { ...item, title: official.title, verified: true };
+      if (official.coverImageUrl) return { ...fixed, coverImageUrl: official.coverImageUrl };
+      // 카카오 쪽에서만 확인된 작품은 표지를 다른 출처(AniList·위키백과, 제목 일치 확인)에서 찾아봅니다.
+      const cover = await resolveCoverUrl({ title: official.title, originalTitle: item.originalTitle, englishTitle: item.englishTitle, creator: item.creator, media: item.media, releaseYear: item.releaseYear });
+      return cover ? { ...fixed, coverImageUrl: cover } : fixed;
+    }
   }
   const url = await resolveCoverUrl({ title: item.title, originalTitle: item.originalTitle, englishTitle: item.englishTitle, creator: item.creator, media: item.media, releaseYear: item.releaseYear });
   return url ? { ...item, coverImageUrl: url, verified: true } : item;
@@ -13,7 +19,7 @@ async function check(item: RecItem): Promise<RecItem> {
 
 /**
  * AI가 만든 추천이 실제 작품인지 외부 출처(서점·TMDB·IMDb·네이버웹툰 등)에서 조회해 확인합니다.
- * 찾으면 표지도 함께 채우고 verified=true 로 표시하며, 웹툰은 공식 제목으로 바로잡습니다.
+ * 찾으면 표지도 함께 채우고 verified=true 로 표시하며, 웹툰은 공식 제목(네이버웹툰·카카오페이지·카카오웹툰)으로 바로잡습니다.
  * 못 찾은 작품도 걸러 내지는 않습니다(카카오페이지 웹툰처럼 조회 출처가 없는 실제 작품이 있기 때문).
  * 전체 대기 시간은 제한합니다.
  */
