@@ -130,14 +130,14 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
   const syncScreenInfo = useCallback(async () => {
     if (syncing.current) return;
     const STALE = 12 * 60 * 60 * 1000;
-    const SCREEN_SYNC_VER = 2; // 2: 인물·극중 이름 한글화
+    const SCREEN_SYNC_VER = 3; // 2: 인물·극중 이름 한글화, 3: 한글 제목 조회 보완·원제 저장
     const targets = storeRef.current.bookmarks.filter((b) => (b.item.media === "film" || b.item.media === "drama") && !(b.screenSyncVer === SCREEN_SYNC_VER && b.screenSyncedAt && Date.now() - Date.parse(b.screenSyncedAt) < STALE));
     if (targets.length === 0) return;
     syncing.current = true;
     try {
       for (let i = 0; i < targets.length; i += 10) {
         const chunk = targets.slice(i, i + 10);
-        let results: ({ creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string } | null)[];
+        let results: ({ originalTitle?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string } | null)[];
         try {
           const res = await fetch("/api/works/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: chunk.map((b) => ({ media: b.item.media, title: b.item.title, year: b.item.releaseYear, originalTitle: b.item.originalTitle, englishTitle: b.item.englishTitle })) }) });
           if (!res.ok) break;
@@ -152,7 +152,7 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
             const r = results[idx];
             if (!r) return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER }; // 못 찾은 작품은 저장된 값을 그대로 두고, 12시간 뒤 다시 시도
             const it = b.item;
-            return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER, item: { ...it, creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.characters.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus } };
+            return { ...b, screenSyncedAt: stamp, screenSyncVer: SCREEN_SYNC_VER, item: { ...it, originalTitle: it.originalTitle || (r.originalTitle && r.originalTitle !== it.title ? r.originalTitle : undefined), creator: r.creator || it.creator, cast: r.cast.length ? r.cast : it.cast, characters: r.characters.length ? r.characters : it.characters, lengthInfo: r.lengthInfo || it.lengthInfo, completionStatus: r.completionStatus || it.completionStatus } };
           }),
         }));
       }

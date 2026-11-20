@@ -237,7 +237,7 @@ const koNames = async (list: Person[], n: number): Promise<string> => {
 };
 const keepCharacter = (character: string | undefined) => Boolean(character);
 
-export type ScreenDetails = { /** 확인용: 영화 감독·배우를 KMDb에서 가져왔는지(ok) 또는 이유 */ kmdb?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string };
+export type ScreenDetails = { /** 확인용: 영화 감독·배우를 KMDb에서 가져왔는지(ok) 또는 이유 */ kmdb?: string; /** TMDB의 원제(보관함에 저장해 다음 조회에 쓰임) */ originalTitle?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string };
 
 const DAY = 86400_000;
 let nowPlaying: { at: number; ids: Set<number> } | null = null;
@@ -291,6 +291,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       const reopened = isPlaying && !Number.isNaN(first) && first !== undefined && Date.now() - first > 365 * DAY;
       return {
         kmdb: nvr.status,
+        originalTitle: String(detail.original_title ?? "").slice(0, 100),
         creator,
         cast: castShown,
         // 극중 이름은 TMDB 표기(KMDb는 극중 이름을 주지 않음). 배우 이름은 위에서 정한 한글 표기와 맞춥니다.
@@ -301,7 +302,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
     }
     const [cr, detail, agg] = await Promise.all([
       credits,
-      getJson(`${TMDB}/tv/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ created_by?: Person[]; original_language?: string; status?: string; number_of_episodes?: number; number_of_seasons?: number; first_air_date?: string; last_air_date?: string; next_episode_to_air?: unknown }>,
+      getJson(`${TMDB}/tv/${tmdbId}?api_key=${k}&language=ko-KR`, {}, 3000) as Promise<{ created_by?: Person[]; original_name?: string; original_language?: string; status?: string; number_of_episodes?: number; number_of_seasons?: number; first_air_date?: string; last_air_date?: string; next_episode_to_air?: unknown }>,
       getJson(`${TMDB}/tv/${tmdbId}/aggregate_credits?api_key=${k}&language=ko-KR`, {}, 3000).catch(() => null) as Promise<{ crew?: Crew[] } | null>,
     ]);
     const top = (cr.cast ?? []).filter((c) => c.name).slice(0, 4);
@@ -312,6 +313,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
     const airing = Boolean(detail.next_episode_to_air) || (detail.status === "Returning Series" && !Number.isNaN(last) && Date.now() - last < 45 * DAY);
     const seasons = detail.number_of_seasons ?? 0, eps = detail.number_of_episodes ?? 0;
     return {
+      originalTitle: String(detail.original_name ?? "").slice(0, 100),
       creator,
       cast: castKo,
       characters: top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),
@@ -334,11 +336,14 @@ export async function findScreenId(kind: ScreenKind, title: string, year: string
   const queries = Array.from(new Set([title, ...parts, ...alt].map((x) => x.trim()).filter(Boolean))).slice(0, 4);
   const wanted = new Set(queries.map(norm));
   const y0 = Number(year) || 0;
+  type Hit = { id: number; title?: string; name?: string; original_title?: string; original_name?: string; release_date?: string; first_air_date?: string; popularity?: number };
+  let firstTop: Hit | null = null; // 저장된 제목으로 검색한 결과의 1위(표기가 달라 정확히 같은 제목을 못 찾을 때의 후보)
   for (const q of queries) {
     try {
       const d = (await getJson(`${TMDB}/search/${path}?api_key=${encodeURIComponent(key() as string)}&language=ko-KR&include_adult=false&query=${encodeURIComponent(q)}`, {}, 3500)) as {
         results?: { id: number; title?: string; name?: string; original_title?: string; original_name?: string; release_date?: string; first_air_date?: string; popularity?: number }[];
       };
+      if (q === queries[0]) firstTop = (d.results ?? [])[0] ?? null;
       const hits = (d.results ?? []).slice(0, 10).filter((r) => [r.title, r.name, r.original_title, r.original_name].some((n) => n && wanted.has(norm(n))));
       const ok = hits.filter((r) => {
         const y = Number((r.release_date || r.first_air_date || "").slice(0, 4)) || 0;
@@ -346,6 +351,15 @@ export async function findScreenId(kind: ScreenKind, title: string, year: string
       }).sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
       if (ok[0]) return ok[0].id;
     } catch { /* 다음 검색어 */ }
+  }
+  // 정확히 같은 제목이 없으면, 검색 1위이고 연도가 정확히 같은 작품만 인정합니다(띄어쓰기·표기 차이 대응).
+  // 한쪽 제목이 다른 쪽을 포함하는 경우('계시록'과 '청춘계시록')는 다른 작품일 수 있어 인정하지 않습니다.
+  const top = firstTop as Hit | null;
+  if (top && y0) {
+    const y = Number((top.release_date || top.first_air_date || "").slice(0, 4)) || 0;
+    const w = norm(title);
+    const confusable = [top.title, top.name, top.original_title, top.original_name].some((n) => { const a = n ? norm(n) : ""; return a && a !== w && (a.includes(w) || w.includes(a)); });
+    if (y === y0 && !confusable) return top.id;
   }
   return null;
 }
