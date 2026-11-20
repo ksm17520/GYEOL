@@ -96,15 +96,47 @@ async function imdb(t: CoverTarget, kind: "film" | "drama"): Promise<string | nu
   return null;
 }
 
-async function naverWebtoon(title: string): Promise<string | null> {
+type NaverComic = { titleName?: string; thumbnailUrl?: string };
+async function naverWebtoonSearch(keyword: string): Promise<NaverComic[]> {
   try {
-    const d = (await getJson(`https://comic.naver.com/api/search/all?keyword=${encodeURIComponent(title)}`)) as {
-      searchWebtoonResult?: { searchViewList?: { titleName?: string; thumbnailUrl?: string }[] };
-      searchNbooksComicResult?: { searchViewList?: { titleName?: string; thumbnailUrl?: string }[] };
+    const d = (await getJson(`https://comic.naver.com/api/search/all?keyword=${encodeURIComponent(keyword)}`)) as {
+      searchWebtoonResult?: { searchViewList?: NaverComic[] };
+      searchNbooksComicResult?: { searchViewList?: NaverComic[] };
     };
-    const pool = [...(d.searchWebtoonResult?.searchViewList ?? []), ...(d.searchNbooksComicResult?.searchViewList ?? [])];
-    return pool.find((x) => x.thumbnailUrl && x.titleName && close(x.titleName, title))?.thumbnailUrl ?? null;
+    return [...(d.searchWebtoonResult?.searchViewList ?? []), ...(d.searchNbooksComicResult?.searchViewList ?? [])];
+  } catch { return []; }
+}
+
+async function naverWebtoon(title: string): Promise<string | null> {
+  const pool = await naverWebtoonSearch(title);
+  return pool.find((x) => x.thumbnailUrl && x.titleName && close(x.titleName, title))?.thumbnailUrl ?? null;
+}
+
+/** 거의 같은 제목인지 확인합니다. 한쪽이 다른 쪽에 포함되어도 길이가 70% 이상 같아야 인정합니다. */
+function sameTitle(a: string, b: string): boolean {
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.length >= 3 && long.includes(short) && short.length / long.length >= 0.7;
+}
+
+const toProxy = (raw: string | undefined): string | null => {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" && isAllowedCoverHost(u.hostname) ? `/api/cover-proxy?url=${encodeURIComponent(raw)}` : null;
   } catch { return null; }
+};
+
+/**
+ * 네이버웹툰에 올라 있는 공식 제목을 찾습니다. AI가 적은 제목과 거의 같은 작품이 있으면 그 공식 제목(과 표지)을,
+ * 없으면 null을 돌려줍니다. 비공식 출처이므로 COVER_EXTENDED_SOURCES가 꺼져 있으면 항상 null입니다.
+ */
+export async function findWebtoonOfficial(title: string): Promise<{ title: string; coverImageUrl: string | null } | null> {
+  if (!EXTENDED_SOURCES || !title.trim()) return null;
+  const hit = (await naverWebtoonSearch(title)).find((x) => x.titleName && sameTitle(x.titleName, title));
+  return hit?.titleName ? { title: hit.titleName.slice(0, 100), coverImageUrl: toProxy(hit.thumbnailUrl) } : null;
 }
 
 // TMDB 공식 API (무료 키 필요): 국내 영화·드라마까지 가장 폭넓게 찾습니다. TMDB_API_KEY가 없으면 건너뜁니다.
@@ -225,7 +257,8 @@ export async function resolveCoverUrl(t: CoverTarget): Promise<string | null> {
   } else if (t.media === "drama") {
     raw = (await tmdb(t, "drama")) || (EXTENDED_SOURCES ? (await imdb(t, "drama")) || (await naverPoster(t.title, "drama")) : null) || (await tvmaze(intl)) || (await wikipedia([`${t.title} 드라마`, t.englishTitle || t.title]));
   } else {
-    raw = (EXTENDED_SOURCES ? (await naverWebtoon(t.title)) || (await yes24(t.title, t.creator)) || (await aladin(t.title, t.creator)) : null) ||
+    // 예스24·알라딘은 검색 결과 첫 항목을 제목 확인 없이 쓰므로, 제목이 틀린 웹툰에 엉뚱한 표지가 붙지 않게 웹툰에서는 뺐습니다.
+    raw = (EXTENDED_SOURCES ? await naverWebtoon(t.title) : null) ||
       (await anilist([t.title, t.englishTitle ?? ""])) || (await wikipedia([t.title, t.englishTitle ?? ""]));
   }
   let out: string | null = null;

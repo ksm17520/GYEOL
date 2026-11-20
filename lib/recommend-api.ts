@@ -59,7 +59,11 @@ const LENGTH: Record<ReqFilters["length"], string> = {
 };
 const ERA: Record<ReqFilters["era"], string> = { all: "시대 무관", recent5: "최근 5년 이내 작품 위주", since2010: "2010년 이후 작품 위주", classic: "2010년 이전 클래식·명작 위주" };
 
-const RULES = `[출연진 및 등장인물 규칙]
+const RULES = `[작품 제목 규칙 — 가장 중요]
+- title은 서점·OTT·웹툰 플랫폼(네이버웹툰, 카카오페이지, 카카오웹툰, 리디, 예스24 등)에 실제로 올라와 있는 공식 제목을 한 글자도 바꾸지 말고 그대로 적으세요. 제목을 번역·축약·조합하거나, 비슷한 다른 작품 제목과 섞거나, 직접 지어내지 마세요.
+- 웹툰은 연재 플랫폼에 표기된 제목과 작가(creator) 표기를 그대로 쓰세요.
+- 공식 제목이 정확히 기억나지 않으면 그 작품은 추천하지 말고, 제목을 확실히 아는 다른 작품을 추천하세요.
+[출연진 및 등장인물 규칙]
 - 영화(film)와 드라마(drama)는 실제 감독/연출자 이름(creator), 주연 배우 이름만 담은 배열(cast), "극중이름(배우이름)" 형식의 주요 등장인물 배열(characters)을 기입하세요. 확실하지 않은 정보는 비워 두세요.
 - 책(book)과 웹툰(webtoon)은 cast를 빈 배열로 두세요.
 [추천 플랫폼 규칙] recommendedPlatforms에는 다음 한국 플랫폼명 중 매체에 맞는 1~3개를 적으세요(이 목록에 없더라도 해당 작품을 실제로 열람·시청할 수 있는 사이트라면 적어도 됩니다):
@@ -114,7 +118,7 @@ export const ITEM_SCHEMA = {
   type: "OBJECT",
   properties: {
     id: { ...S, description: "작품 고유 짧은 슬러그" },
-    title: { ...S, description: "실제 작품의 한국어 제목" },
+    title: { ...S, description: "서점·OTT·웹툰 플랫폼에 올라 있는 공식 제목 그대로(번역·축약·조합 금지)" },
     originalTitle: { ...S, description: "원제(해외 작품인 경우)" },
     englishTitle: { ...S, description: "공식 영문 제목 (표지 조회용)" },
     creator: { ...S, description: "저자·감독·작가" },

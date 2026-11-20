@@ -1,10 +1,21 @@
-import { resolveCoverUrl } from "./cover";
-import type { RecItem } from "./item";
+import { findWebtoonOfficial, resolveCoverUrl } from "./cover";
+import { itemKey, type RecItem } from "./item";
+
+async function check(item: RecItem): Promise<RecItem> {
+  // 웹툰: 네이버웹툰에 올라 있는 공식 제목과 거의 같으면 제목을 공식 표기로 바로잡고 표지를 채웁니다.
+  if (item.media === "webtoon") {
+    const official = await findWebtoonOfficial(item.title);
+    if (official) return { ...item, title: official.title, coverImageUrl: official.coverImageUrl ?? item.coverImageUrl, verified: true };
+  }
+  const url = await resolveCoverUrl({ title: item.title, originalTitle: item.originalTitle, englishTitle: item.englishTitle, creator: item.creator, media: item.media, releaseYear: item.releaseYear });
+  return url ? { ...item, coverImageUrl: url, verified: true } : item;
+}
 
 /**
  * AI가 만든 추천이 실제 작품인지 외부 출처(서점·TMDB·IMDb·네이버웹툰 등)에서 조회해 확인합니다.
- * 찾으면 표지도 함께 채우고 verified=true 로 표시합니다. 못 찾은 작품도 걸러 내지는 않습니다
- * (카카오페이지 웹툰처럼 조회 출처가 없는 실제 작품이 있기 때문). 전체 대기 시간은 제한합니다.
+ * 찾으면 표지도 함께 채우고 verified=true 로 표시하며, 웹툰은 공식 제목으로 바로잡습니다.
+ * 못 찾은 작품도 걸러 내지는 않습니다(카카오페이지 웹툰처럼 조회 출처가 없는 실제 작품이 있기 때문).
+ * 전체 대기 시간은 제한합니다.
  */
 export async function verifyItems(items: RecItem[], budgetMs = 9000): Promise<RecItem[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -12,16 +23,14 @@ export async function verifyItems(items: RecItem[], budgetMs = 9000): Promise<Re
   const done = await Promise.all(
     items.map(async (item) => {
       try {
-        const url = await Promise.race([
-          resolveCoverUrl({ title: item.title, originalTitle: item.originalTitle, englishTitle: item.englishTitle, creator: item.creator, media: item.media, releaseYear: item.releaseYear }),
-          deadline,
-        ]);
-        return url ? { ...item, coverImageUrl: url, verified: true } : item;
+        return (await Promise.race([check(item), deadline])) ?? item;
       } catch {
         return item;
       }
     }),
   );
   clearTimeout(timer);
-  return done;
+  // 제목을 바로잡은 뒤 같은 작품이 두 번 나오면 하나만 남깁니다.
+  const seen = new Set<string>();
+  return done.filter((i) => !seen.has(itemKey(i)) && seen.add(itemKey(i)));
 }
