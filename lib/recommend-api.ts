@@ -178,7 +178,7 @@ export function screenBlock(c: ScreenCandidate[]): string {
   if (c.length === 0) return "";
   const lines = c.map((x) => `${x.id} | ${x.title} | ${x.year} | ${x.genres || "장르 미상"} | ${x.availability === "available" ? x.otts.join("·") : "서비스 중단"} | ${x.overview}`).join("\n");
   return `[영화·드라마 후보 목록 — 한국 OTT 제공 정보에서 찾은 실제 작품]
-영화(film)와 드라마(drama)를 추천할 때는 반드시 아래 목록에서만 고르고, 고른 작품의 id를 candidateId에 그대로 적으세요. 목록에 없는 영화·드라마는 절대 추천하지 마세요. title은 목록의 제목을 그대로 적고, 감독·배우·등장인물은 비워 두세요(서버가 채웁니다). 넷플릭스·티빙·웨이브·왓챠·쿠팡플레이·Apple TV+ 중 한 곳에 쏠리지 않게 여러 OTT의 작품을 고르게 섞으세요. '서비스 중단'은 지금 한국 OTT에서 볼 수 없는 작품이므로 영화·드라마 전체에서 최대 1편만, 정말 어울릴 때만 고르세요.
+영화(film)와 드라마(drama)를 추천할 때는 반드시 아래 목록에서만 고르고, 고른 작품의 id를 candidateId에 그대로 적으세요. 목록에 없는 영화·드라마는 절대 추천하지 마세요. title은 목록의 제목을 그대로 적고, 감독·배우·등장인물은 비워 두세요(서버가 채웁니다). 목록에 나온 OTT(넷플릭스·티빙·웨이브·왓챠·쿠팡플레이·Apple TV+ 등)가 추천 결과 전체에서 빠짐없이 한 번 이상 나오도록 OTT마다 최소 1편을 포함하세요(한 작품이 여러 OTT에 올라 있으면 한꺼번에 채워도 됩니다). 어느 OTT도 더 낫다고 보지 말고 고르게 섞으세요. '서비스 중단'은 지금 한국 OTT에서 볼 수 없는 작품이므로 영화·드라마 전체에서 최대 1편만, 정말 어울릴 때만 고르세요.
 id | 제목 | 연도 | 장르 | 시청 가능 OTT | 줄거리
 ${lines}
 
@@ -199,30 +199,70 @@ const posterProxy = (u: string | null) => (u ? `/api/cover-proxy?url=${encodeURI
  * 작품별 한국 제공 정보를 한 번 더 확인해 OTT를 정하며(볼 방법이 없으면 서비스 중단 표시), 없는 작품은 제외합니다.
  * 볼 수 있는 작품을 앞에, 서비스 중단 작품은 뒤에 두고 최대 2편만 남깁니다. 해당 매체의 후보가 없으면 손대지 않습니다.
  */
+async function screenItemFrom(c: ScreenCandidate, base: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const [fresh, cr] = await Promise.all([koreaProviders(c.kind, c.tmdbId), creditsOf(c.kind, c.tmdbId)]);
+  const otts = fresh ? fresh.otts : c.otts;
+  const available = fresh ? fresh.any && (otts.length > 0 || c.availability === "available") : c.availability === "available";
+  const gone = !available || (otts.length === 0 && c.availability === "discontinued");
+  return {
+    ...base, title: c.title, originalTitle: c.originalTitle || undefined, releaseYear: c.year, coverImageUrl: posterProxy(c.posterUrl), verified: true,
+    creator: cr?.creator ?? "", cast: cr?.cast ?? [], characters: cr?.characters ?? [],
+    // 작품별 제공 정보에 구독 OTT가 없으면 목록에 있던 OTT를 그대로 믿지 않습니다(구매·대여만 가능하면 유튜브 링크만).
+    recommendedPlatforms: gone ? ["유튜브"] : fresh ? (otts.length ? otts : ["유튜브"]) : c.otts,
+    availability: gone ? "discontinued" : "available",
+  };
+}
+
+/** AI가 쓴 소개가 없는 작품(OTT 채우기용)에 쓸 기본 소개 */
+const plainItem = (c: ScreenCandidate, i: number): Record<string, unknown> => ({
+  id: `scr-${c.id}-${i}`, mediaType: c.kind, catalogCode: c.kind === "film" ? "FL-00" : "DR-00",
+  logline: c.overview, matchReason: `${c.genres || "이 장르"}로, 고른 분위기와 결이 닿는 작품이에요.`,
+  appreciationPoints: [], moodTags: c.genres.split("·").filter(Boolean), lengthInfo: "", completionStatus: "", previewExcerpt: "", crossoverHint: "", accentTone: c.kind === "film" ? "plum" : "forest",
+});
+
+/**
+ * 영화·드라마 추천을 후보 목록으로 맞춥니다. candidateId가 목록에 있으면 제목·연도·표지·감독·출연진을 TMDB 정보로 바꾸고,
+ * 작품별 한국 제공 정보를 한 번 더 확인해 OTT를 정하며(볼 방법이 없으면 서비스 중단 표시), 없는 작품은 제외합니다.
+ * 후보 목록에 나온 OTT가 결과에서 빠졌으면, 다른 OTT와 겹치는 작품 한 편을 그 OTT의 후보로 바꿔 모든 OTT가 한 번 이상 나오게 합니다.
+ * 볼 수 있는 작품을 앞에, 서비스 중단 작품은 뒤에 두고 최대 2편만 남깁니다. 해당 매체의 후보가 없으면 손대지 않습니다.
+ */
 export async function applyScreenCandidates(items: unknown, pool: ScreenCandidate[]): Promise<unknown> {
   if (pool.length === 0 || !Array.isArray(items)) return items;
   const by = new Map(pool.map((c) => [c.id, c]));
   const kindsWithPool = new Set(pool.map((c) => c.kind));
   const kindOf = (x: unknown) => (isObj(x) ? normalizeMedia(x.mediaType ?? x.media) : null);
+  const used = new Set<string>();
   const mapped = await Promise.all(items.map(async (x) => {
     const m = kindOf(x);
     if (!isObj(x) || (m !== "film" && m !== "drama") || !kindsWithPool.has(m)) return [x];
     const c = by.get(clip(x.candidateId, 10));
     if (!c || c.kind !== m) return [];
-    const [fresh, cr] = await Promise.all([koreaProviders(c.kind, c.tmdbId), creditsOf(c.kind, c.tmdbId)]);
-    const otts = fresh ? fresh.otts : c.otts;
-    const available = fresh ? fresh.any && (otts.length > 0 || c.availability === "available") : c.availability === "available";
-    const gone = !available || (otts.length === 0 && c.availability === "discontinued");
-    return [{
-      ...x, title: c.title, originalTitle: c.originalTitle || undefined, releaseYear: c.year, coverImageUrl: posterProxy(c.posterUrl), verified: true,
-      creator: cr?.creator ?? "", cast: cr?.cast ?? [], characters: cr?.characters ?? [],
-      // 작품별 제공 정보에 구독 OTT가 없으면 목록에 있던 OTT를 그대로 믿지 않습니다(구매·대여만 가능하면 유튜브 링크만).
-      recommendedPlatforms: gone ? ["유튜브"] : fresh ? (otts.length ? otts : ["유튜브"]) : c.otts,
-      availability: gone ? "discontinued" : "available",
-    }];
+    used.add(c.id);
+    return [await screenItemFrom(c, x)];
   }));
-  const flat = mapped.flat();
+  let flat: unknown[] = mapped.flat();
+  const isScreen = (x: unknown) => isObj(x) && (kindOf(x) === "film" || kindOf(x) === "drama") && x.verified === true;
   const isGone = (x: unknown) => isObj(x) && x.availability === "discontinued";
+  const ottsOf = (x: unknown): string[] => (isObj(x) && Array.isArray(x.recommendedPlatforms) ? (x.recommendedPlatforms as string[]) : []);
+
+  // 모든 OTT 반영: 빠진 OTT마다, 다른 작품과 OTT가 겹쳐 빼도 되는 작품 하나를 그 OTT 후보로 바꿉니다.
+  const universe = Array.from(new Set(pool.filter((c) => c.availability === "available").flatMap((c) => c.otts)));
+  for (let guard = 0; guard < universe.length; guard++) {
+    const covered = new Set(flat.filter((x) => isScreen(x) && !isGone(x)).flatMap(ottsOf));
+    const missing = universe.find((o) => !covered.has(o));
+    if (!missing) break;
+    const cand = pool.find((c) => !used.has(c.id) && c.availability === "available" && c.otts.includes(missing));
+    if (!cand) { universe.splice(universe.indexOf(missing), 1); continue; }
+    const screens = flat.filter((x) => isScreen(x) && !isGone(x));
+    const count = (o: string) => screens.filter((x) => ottsOf(x).includes(o)).length;
+    // 뒤쪽 작품부터, 그 작품의 OTT가 모두 다른 작품에도 있는 경우에만 뺄 수 있습니다.
+    const victim = [...screens].reverse().find((x) => ottsOf(x).every((o) => count(o) > 1));
+    if (!victim && flat.length >= 8) break; // 더 늘릴 수도, 바꿀 수도 없음
+    used.add(cand.id);
+    const replacement = await screenItemFrom(cand, plainItem(cand, guard));
+    flat = victim ? flat.map((x) => (x === victim ? replacement : x)) : [...flat, replacement]; // 바꿀 작품이 없으면 하나 덧붙입니다(최대 8편)
+  }
+
   let goneLeft = 2;
   const keep = flat.filter((x) => !isGone(x) || goneLeft-- > 0);
   return [...keep.filter((x) => !isGone(x)), ...keep.filter(isGone)];

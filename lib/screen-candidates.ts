@@ -95,7 +95,7 @@ const toCand = (r: Row, kind: ScreenKind, otts: string[], availability: Availabi
   originalTitle: String(r.original_title ?? r.original_name ?? "").slice(0, 100),
   year: String(r.release_date ?? r.first_air_date ?? "").slice(0, 4),
   genres: (r.genre_ids ?? []).map((g) => GENRE_LABEL[g]).filter(Boolean).slice(0, 3).join("·"),
-  overview: String(r.overview ?? "").replace(/\s+/g, " ").slice(0, 70),
+  overview: String(r.overview ?? "").replace(/\s+/g, " ").slice(0, 110),
   posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : null,
   otts,
   availability,

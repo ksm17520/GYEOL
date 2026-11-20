@@ -64,7 +64,7 @@ export function WorkDetailModal({ item, onClose, onCross, onTrack }: {
     if (wait > 0) { setVerifyError(`AI 사용 한도 때문에 ${wait}초 뒤에 다시 확인할 수 있어요. 위 플랫폼 버튼으로는 바로 열람할 수 있어요.`); return; }
     setVerifying(true); setVerifyError(null);
     try {
-      const res = await fetch("/api/works/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: item.title, creator: item.creator, media: item.media }) });
+      const res = await fetch("/api/works/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: item.title, creator: item.creator, media: item.media, claimed: item.media === "film" || item.media === "drama" || item.media === "webtoon" ? item.recommendedPlatforms : [] }) });
       const data: unknown = await res.json();
       if (res.status === 429) cooldownUntil = Date.now() + 60_000;
       if (!res.ok) throw new Error((data as { error?: string })?.error || "감상처 확인 중 오류가 발생했습니다.");

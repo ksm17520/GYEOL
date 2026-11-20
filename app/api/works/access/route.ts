@@ -29,15 +29,17 @@ export async function POST(req: Request) {
   const title = typeof body?.title === "string" ? body.title.trim().slice(0, 100) : "";
   const creator = typeof body?.creator === "string" ? body.creator.trim().slice(0, 100) : "";
   const media = normalizeMedia(body?.media);
+  // 추천 단계에서 TMDB·플랫폼 검색으로 "볼 수 있다"고 표시한 곳. 아래 실시간 검색으로 하나씩 다시 확인합니다.
+  const claimed = Array.isArray(body?.claimed) ? (body.claimed as unknown[]).filter((x): x is string => typeof x === "string").map((x) => x.trim().slice(0, 30)).filter(Boolean).slice(0, 6) : [];
   if (!title || !media) return NextResponse.json({ error: "작품 제목과 매체가 필요합니다.", code: "BAD" }, { status: 400 });
 
-  const cacheKey = `${media}::${title.toLowerCase()}::${creator.toLowerCase()}`;
+  const cacheKey = `${media}::${title.toLowerCase()}::${creator.toLowerCase()}::${claimed.join(",")}`;
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_MS) return NextResponse.json(hit.value);
 
   const prompt = `한국에서 ${MEDIA_LABEL[media]} "${title}"${creator ? ` (${creator})` : ""} 작품을 현재 어디서 열람, 구매 또는 스트리밍 시청할 수 있는지 검색해 간결하게 정리해 주세요.
 확인 대상 주요 플랫폼: ${SCOPE[media]}. 이 목록에 없더라도 해당 작품을 열람·시청할 수 있는 한국의 다른 사이트나 서비스가 확인되면 함께 알려 주세요.
-2~3문장으로 현재 확인되는 한국 플랫폼·서점 이용 가능 여부와 특징(구독 포함 여부, 단행본/전자책 출간 여부, 완결 회차 등)만 깔끔한 한국어로 답변해 주세요. 확인되지 않은 내용은 추측하지 말고 '확인되지 않았다'고 적어 주세요.`;
+2~3문장으로 현재 확인되는 한국 플랫폼·서점 이용 가능 여부와 특징(구독 포함 여부, 단행본/전자책 출간 여부, 완결 회차 등)만 깔끔한 한국어로 답변해 주세요. 확인되지 않은 내용은 추측하지 말고 '확인되지 않았다'고 적어 주세요.${claimed.length ? `\n이 작품은 앞선 조회(TMDB 제공 정보 등)에서 ${claimed.join(", ")}에서 볼 수 있다고 표시되어 있습니다. 이 플랫폼들을 각 공식 사이트·검색 결과로 하나씩 다시 확인해, 실제로 제공 중인 곳과 확인되지 않은 곳(또는 서비스가 끝난 곳)을 구분해서 알려 주세요. 확인되지 않으면 추측하지 말고 "확인되지 않음"이라고 쓰세요.` : ""}`;
   try {
     const { text, sources } = await generateGrounded(prompt);
     const value = { summary: text.slice(0, 1200) || "주요 플랫폼 검색 결과를 확인했습니다.", sources, verifiedAt: new Date().toISOString() };
