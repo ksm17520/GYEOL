@@ -2,20 +2,26 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Media } from "@/lib/data";
+import { itemKey, type RecItem } from "@/lib/item";
 import {
   EMPTY_STORE, sanitizeStore,
-  type ArchiveStore, type Bookmark, type HistorySession, type TasteProfile, type WatchStatus,
+  type ArchiveStore, type Bookmark, type HistorySession, type TasteProfile, type VerifiedAccess, type WatchStatus,
 } from "@/lib/archive-types";
 
-const KEY = "gyeol-archive-v1";
+const KEY = "gyeol-archive-v2";
+const V1_KEY = "gyeol-archive-v1"; // 작품 id 기반 이전 버전
 const LEGACY_SAVED_KEY = "gyeol-saved"; // 이전 버전의 보관함(작품 id 배열)
 
 type Ctx = ArchiveStore & {
   ready: boolean;
-  isBookmarked: (workId: string) => boolean;
-  toggleBookmark: (workId: string) => void;
-  updateBookmark: (workId: string, patch: Partial<Pick<Bookmark, "status" | "rating" | "memo">>) => void;
-  removeBookmark: (workId: string) => void;
+  getBookmark: (item: RecItem) => Bookmark | undefined;
+  isBookmarked: (item: RecItem) => boolean;
+  toggleBookmark: (item: RecItem) => void;
+  /** 이미 담긴 작품이면 상태만, 아니면 해당 상태로 새로 담습니다. */
+  upsertStatus: (item: RecItem, status: WatchStatus) => void;
+  updateBookmark: (key: string, patch: Partial<Pick<Bookmark, "status" | "rating" | "memo">>) => void;
+  saveVerifiedAccess: (key: string, access: VerifiedAccess) => void;
+  removeBookmark: (key: string) => void;
   addFavoriteSeed: (title: string, media: Media, whyLiked: string) => void;
   removeFavoriteSeed: (id: string) => void;
   addHistory: (s: Omit<HistorySession, "id" | "createdAt">) => void;
@@ -29,7 +35,7 @@ const ArchiveContext = createContext<Ctx | null>(null);
 
 function loadStore(): ArchiveStore {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(V1_KEY);
     if (raw) return sanitizeStore(JSON.parse(raw));
     const legacy = localStorage.getItem(LEGACY_SAVED_KEY);
     if (legacy) {
@@ -59,22 +65,44 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
 
   const now = () => new Date().toISOString();
 
-  const isBookmarked = useCallback((id: string) => store.bookmarks.some((b) => b.workId === id), [store.bookmarks]);
+  const getBookmark = useCallback((item: RecItem) => store.bookmarks.find((b) => b.key === itemKey(item)), [store.bookmarks]);
+  const isBookmarked = useCallback((item: RecItem) => store.bookmarks.some((b) => b.key === itemKey(item)), [store.bookmarks]);
 
-  const toggleBookmark = useCallback((workId: string) => {
+  const newBookmark = (item: RecItem, status: WatchStatus): Bookmark => {
+    const t = now();
+    return { key: itemKey(item), item, status, rating: 0, memo: "", savedAt: t, updatedAt: t };
+  };
+
+  const toggleBookmark = useCallback((item: RecItem) => {
+    const key = itemKey(item);
     setStore((p) => {
-      if (p.bookmarks.some((b) => b.workId === workId)) return { ...p, bookmarks: p.bookmarks.filter((b) => b.workId !== workId) };
-      const t = now();
-      return { ...p, bookmarks: [{ workId, status: "want" as WatchStatus, rating: 0, memo: "", savedAt: t, updatedAt: t }, ...p.bookmarks] };
+      if (p.bookmarks.some((b) => b.key === key)) return { ...p, bookmarks: p.bookmarks.filter((b) => b.key !== key) };
+      if (p.bookmarks.length >= 500) return p;
+      return { ...p, bookmarks: [newBookmark(item, "want"), ...p.bookmarks] };
     });
   }, []);
 
-  const updateBookmark: Ctx["updateBookmark"] = useCallback((workId, patch) => {
-    setStore((p) => ({ ...p, bookmarks: p.bookmarks.map((b) => (b.workId === workId ? { ...b, ...patch, memo: patch.memo !== undefined ? patch.memo.slice(0, 1000) : b.memo, updatedAt: now() } : b)) }));
+  const upsertStatus = useCallback((item: RecItem, status: WatchStatus) => {
+    const key = itemKey(item);
+    setStore((p) => {
+      if (p.bookmarks.some((b) => b.key === key)) {
+        return { ...p, bookmarks: p.bookmarks.map((b) => (b.key === key ? { ...b, status, updatedAt: now() } : b)) };
+      }
+      if (p.bookmarks.length >= 500) return p;
+      return { ...p, bookmarks: [newBookmark(item, status), ...p.bookmarks] };
+    });
   }, []);
 
-  const removeBookmark = useCallback((workId: string) => {
-    setStore((p) => ({ ...p, bookmarks: p.bookmarks.filter((b) => b.workId !== workId) }));
+  const updateBookmark: Ctx["updateBookmark"] = useCallback((key, patch) => {
+    setStore((p) => ({ ...p, bookmarks: p.bookmarks.map((b) => (b.key === key ? { ...b, ...patch, memo: patch.memo !== undefined ? patch.memo.slice(0, 1000) : b.memo, updatedAt: now() } : b)) }));
+  }, []);
+
+  const saveVerifiedAccess = useCallback((key: string, access: VerifiedAccess) => {
+    setStore((p) => ({ ...p, bookmarks: p.bookmarks.map((b) => (b.key === key ? { ...b, verifiedAccess: access, updatedAt: now() } : b)) }));
+  }, []);
+
+  const removeBookmark = useCallback((key: string) => {
+    setStore((p) => ({ ...p, bookmarks: p.bookmarks.filter((b) => b.key !== key) }));
   }, []);
 
   const addFavoriteSeed = useCallback((title: string, media: Media, whyLiked: string) => {
@@ -115,8 +143,8 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<Ctx>(
-    () => ({ ...store, ready, isBookmarked, toggleBookmark, updateBookmark, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, exportJson, importJson }),
-    [store, ready, isBookmarked, toggleBookmark, updateBookmark, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, exportJson, importJson],
+    () => ({ ...store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, exportJson, importJson }),
+    [store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, exportJson, importJson],
   );
 
   return <ArchiveContext.Provider value={value}>{children}</ArchiveContext.Provider>;

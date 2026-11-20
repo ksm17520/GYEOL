@@ -1,4 +1,5 @@
 import { MEDIA_LABEL, WORKS, type Media } from "./data";
+import { itemKey, sanitizeItem, workToItem, type RecItem } from "./item";
 
 export type WatchStatus = "want" | "in_progress" | "completed";
 
@@ -8,11 +9,20 @@ export const STATUS_LABEL: Record<WatchStatus, string> = {
   completed: "감상 완료",
 };
 
+export type VerifiedAccess = {
+  summary: string;
+  sources: { title: string; uri: string }[];
+  verifiedAt: string;
+};
+
 export type Bookmark = {
-  workId: string;
+  /** 매체+제목 기반 식별자 (itemKey) */
+  key: string;
+  item: RecItem;
   status: WatchStatus;
   rating: number; // 0 = 미평가, 1~5
   memo: string;
+  verifiedAccess?: VerifiedAccess;
   savedAt: string;
   updatedAt: string;
 };
@@ -30,7 +40,8 @@ export type HistorySession = {
   mode: "mood" | "crossover";
   querySummary: string;
   headline: string;
-  workIds: string[];
+  note: string;
+  items: RecItem[];
   createdAt: string;
 };
 
@@ -56,7 +67,6 @@ export type ArchiveStore = {
 export const EMPTY_STORE: ArchiveStore = { bookmarks: [], favoriteSeeds: [], history: [], tasteProfile: null };
 
 const MEDIA_IDS = Object.keys(MEDIA_LABEL) as Media[];
-const WORK_IDS = new Set(WORKS.map((w) => w.id));
 const STATUSES: WatchStatus[] = ["want", "in_progress", "completed"];
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
@@ -66,25 +76,39 @@ const iso = (v: unknown): string => {
   return Number.isNaN(Date.parse(s)) ? new Date().toISOString() : s;
 };
 
-/** 저장소·가져오기 파일에서 읽은 값을 검증해 안전한 형태로 정리합니다. */
+/** 저장소·가져오기 파일에서 읽은 값을 검증해 안전한 형태로 정리합니다. (v1: workId 기반 보관함도 변환) */
 export function sanitizeStore(raw: unknown): ArchiveStore {
   if (!isObj(raw)) return EMPTY_STORE;
+
+  const toItem = (x: unknown, id: string): RecItem | null => {
+    if (!isObj(x)) return null;
+    if (typeof x.workId === "string") {
+      const idx = WORKS.findIndex((w) => w.id === x.workId);
+      return idx >= 0 ? workToItem(WORKS[idx], idx) : null;
+    }
+    return sanitizeItem(x.item ?? x, id);
+  };
+
   const seen = new Set<string>();
   const bookmarks: Bookmark[] = [];
   if (Array.isArray(raw.bookmarks)) {
-    for (const b of raw.bookmarks) {
-      if (!isObj(b) || typeof b.workId !== "string" || !WORK_IDS.has(b.workId) || seen.has(b.workId)) continue;
-      seen.add(b.workId);
+    for (const b of raw.bookmarks.slice(0, 500)) {
+      if (!isObj(b)) continue;
+      const item = toItem(b, `bm-${bookmarks.length}`);
+      if (!item) continue;
+      const key = itemKey(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const status = STATUSES.find((s) => s === b.status) ?? "want";
       const rating = typeof b.rating === "number" && b.rating >= 0 && b.rating <= 5 ? Math.round(b.rating) : 0;
-      bookmarks.push({ workId: b.workId, status, rating, memo: str(b.memo, 1000), savedAt: iso(b.savedAt), updatedAt: iso(b.updatedAt) });
+      bookmarks.push({ key, item, status, rating, memo: str(b.memo, 1000), verifiedAccess: sanitizeAccess(b.verifiedAccess), savedAt: iso(b.savedAt), updatedAt: iso(b.updatedAt) });
     }
   }
   const favoriteSeeds: FavoriteSeed[] = [];
   if (Array.isArray(raw.favoriteSeeds)) {
     for (const s of raw.favoriteSeeds.slice(0, 100)) {
       if (!isObj(s)) continue;
-      const media = MEDIA_IDS.find((m) => m === s.media);
+      const media = MEDIA_IDS.find((m) => m === s.media) ?? (s.mediaType === "movie" ? "film" : MEDIA_IDS.find((m) => m === s.mediaType));
       const title = str(s.title, 100).trim();
       if (!media || !title) continue;
       favoriteSeeds.push({ id: str(s.id, 60) || `seed-${favoriteSeeds.length}-${Date.now()}`, title, media, whyLiked: str(s.whyLiked, 300), createdAt: iso(s.createdAt) });
@@ -93,13 +117,23 @@ export function sanitizeStore(raw: unknown): ArchiveStore {
   const history: HistorySession[] = [];
   if (Array.isArray(raw.history)) {
     for (const h of raw.history.slice(0, 20)) {
-      if (!isObj(h) || !Array.isArray(h.workIds)) continue;
+      if (!isObj(h)) continue;
+      let items: RecItem[] = [];
+      if (Array.isArray(h.items)) {
+        items = h.items.slice(0, 8).map((x, i) => sanitizeItem(x, `h-${i}`)).filter((x): x is RecItem => x !== null);
+      } else if (Array.isArray(h.workIds)) {
+        items = h.workIds.flatMap((id) => {
+          const idx = WORKS.findIndex((w) => w.id === id);
+          return idx >= 0 ? [workToItem(WORKS[idx], idx)] : [];
+        }).slice(0, 8);
+      }
       history.push({
         id: str(h.id, 60) || `hist-${history.length}-${Date.now()}`,
         mode: h.mode === "crossover" ? "crossover" : "mood",
         querySummary: str(h.querySummary, 300),
         headline: str(h.headline, 200),
-        workIds: h.workIds.filter((x): x is string => typeof x === "string" && WORK_IDS.has(x)).slice(0, 12),
+        note: str(h.note, 600),
+        items,
         createdAt: iso(h.createdAt),
       });
     }
@@ -116,4 +150,19 @@ export function sanitizeStore(raw: unknown): ArchiveStore {
     };
   }
   return { bookmarks, favoriteSeeds, history, tasteProfile };
+}
+
+/** 감상처 확인 결과 검증: 링크는 https 주소만 허용 */
+export function sanitizeAccess(v: unknown): VerifiedAccess | undefined {
+  if (!isObj(v) || typeof v.summary !== "string") return undefined;
+  const sources = Array.isArray(v.sources)
+    ? v.sources.flatMap((x) => {
+        if (!isObj(x) || typeof x.uri !== "string") return [];
+        try {
+          const u = new URL(x.uri);
+          return u.protocol === "https:" ? [{ title: str(x.title, 120) || u.hostname, uri: u.toString().slice(0, 1000) }] : [];
+        } catch { return []; }
+      }).slice(0, 6)
+    : [];
+  return { summary: str(v.summary, 1200), sources, verifiedAt: iso(v.verifiedAt) };
 }

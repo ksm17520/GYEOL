@@ -5,11 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { useArchive } from "./providers";
 import { useTheme } from "@/lib/theme";
-import { MEDIA_LABEL, MEDIA_STAMP, MOODS, SITUATIONS, WORKS, type Media, type MoodId, type SituationId, type Work } from "@/lib/data";
-import { GROUP_LABEL, PLATFORMS, PLATFORM_BY_ID, type PlatformGroup } from "@/lib/platforms";
+import { RecCard } from "@/components/RecCard";
+import { WorkDetailModal } from "@/components/WorkDetailModal";
+import { MEDIA_LABEL, MOODS, SITUATIONS, WORKS, type Media, type MoodId, type SituationId } from "@/lib/data";
+import { normalizeMedia, sanitizeItem, workToItem, type RecItem } from "@/lib/item";
+import { GROUP_LABEL, PLATFORMS, platformNames, type PlatformGroup } from "@/lib/platforms";
 import {
   DEFAULT_FILTERS, activeFilterCount, headlineFor, recommendByFavorite, recommendByMood,
-  type Filters, type Result,
+  type Filters,
 } from "@/lib/recommend";
 
 type Mode = "mood" | "crossover";
@@ -37,9 +40,15 @@ export default function Home() {
   const [favMedia, setFavMedia] = useState<Media>("film");
   const [favReasons, setFavReasons] = useState<string[]>(["", "", ""]);
 
-  const [results, setResults] = useState<Result[] | null>(null);
+  const [results, setResults] = useState<RecItem[] | null>(null);
   const [headline, setHeadline] = useState("");
   const [note, setNote] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [detail, setDetail] = useState<RecItem | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | undefined>(undefined);
   const [bannerOpen, setBannerOpen] = useState(true);
   const workspace = useRef<HTMLElement | null>(null);
 
@@ -64,34 +73,108 @@ export default function Home() {
   const canMood = moods.length > 0 || situation !== null || text.trim().length > 0;
   const canFav = favTitle.trim().length > 0 && favReasons.some((r) => r.trim().length > 0);
 
+  function showToast(msg: string) {
+    setToast(msg);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 3500);
+  }
+
   function platformNote(): string {
-    const names = filters.platforms.map((p) => PLATFORM_BY_ID[p]?.name).filter(Boolean);
-    return names.length > 0 ? `선택한 플랫폼(${names.join(" · ")})에서 볼 수 있는 작품을 우선 연결했어요.` : "원하는 플랫폼은 '세부 조건 · 플랫폼'에서 고르면 우선 추천에 반영돼요.";
+    const names = platformNames(filters.platforms);
+    return names.length > 0 ? `선택한 플랫폼(${names.join(" · ")})에서 볼 수 있는 작품을 우선 고려했어요.` : "원하는 플랫폼은 '세부 조건 · 플랫폼'에서 고르면 우선 추천에 반영돼요.";
   }
 
-  function showResults(r: Result[], title: string, extra: string, summary: string, kind: Mode) {
-    setResults(r);
+  function showResults(items: RecItem[], title: string, text: string, summary: string, kind: Mode, noticeText: string | null) {
+    setResults(items);
     setHeadline(title);
-    setNote(`${extra} ${platformNote()}`);
-    if (r.length > 0) arch.addHistory({ mode: kind, querySummary: summary, headline: title, workIds: r.map((x) => x.work.id) });
-    setTimeout(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setNote(`${text} ${platformNote()}`.trim());
+    setNotice(noticeText);
+    setError(null);
+    arch.addHistory({ mode: kind, querySummary: summary, headline: title, note: text, items });
+    window.setTimeout(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
-  function submitMood() {
-    const r = recommendByMood({ moods, situation, text, filters });
-    const sit = SITUATIONS.find((s) => s.id === situation)?.label;
-    const summary = [moods.map((m) => MOODS.find((x) => x.id === m)?.label).filter(Boolean).join(", "), sit, text.trim().slice(0, 60)].filter(Boolean).join(" / ");
-    showResults(r, headlineFor(moods), [sit ? `상황: ${sit}.` : "", moods.length ? `분위기 ${moods.length}개를 반영했어요.` : ""].filter(Boolean).join(" "), summary, "mood");
+  async function callApi(url: string, body: unknown): Promise<{ data: Record<string, unknown>; error?: string; code?: string }> {
+    try {
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) return { data, error: typeof data.error === "string" ? data.error : "요청을 처리하지 못했어요.", code: typeof data.code === "string" ? data.code : undefined };
+      return { data };
+    } catch {
+      return { data: {}, error: "네트워크 연결을 확인해 주세요." };
+    }
   }
 
-  function submitFav() {
-    const r = recommendByFavorite({ title: favTitle, media: favMedia, reasons: favReasons, filters });
-    showResults(r, `「${favTitle.trim()}」의 결을 닮은 다른 매체의 작품들`, `${MEDIA_LABEL[favMedia]} 외 다른 매체에서 골랐어요.`, `인생작 「${favTitle.trim()}」(${MEDIA_LABEL[favMedia]})`, "crossover");
+  function aiItems(raw: unknown, prefix: string): RecItem[] {
+    return (Array.isArray(raw) ? raw : []).slice(0, 8).map((x, i) => sanitizeItem(x, `${prefix}-${i}`, "ai")).filter((x): x is RecItem => x !== null);
   }
 
-  function crossover(work: Work) {
-    const r = recommendByFavorite({ title: work.title, media: work.media, reasons: [], filters });
-    showResults(r, `「${work.title}」에서 이어지는 다른 매체의 작품들`, `${MEDIA_LABEL[work.media]} 외 다른 매체에서 골랐어요.`, `「${work.title}」에서 이어 보기`, "crossover");
+  const apiFilters = () => ({ length: filters.length, finishedOnly: filters.finishedOnly, era: filters.era, platforms: platformNames(filters.platforms) });
+  const reasonText = (e?: string, code?: string) => (code === "NO_KEY" ? "AI 추천이 아직 설정되지 않아" : `AI 추천을 불러오지 못해(${e ?? "알 수 없는 오류"})`);
+
+  async function submitMood() {
+    if (loading) return;
+    setLoading(true); setError(null);
+    const sit = SITUATIONS.find((s) => s.id === situation)?.label ?? "";
+    const moodLabels: string[] = moods.flatMap((m) => MOODS.filter((x) => x.id === m).map((x) => x.label as string));
+    const summary = [moodLabels.join(", "), sit, text.trim().slice(0, 60)].filter(Boolean).join(" / ");
+    const r = await callApi("/api/recommend/mood", {
+      media: filters.media.length ? filters.media : MEDIA_LIST, moods: moodLabels, situation: sit, freeText: text, filters: apiFilters(),
+      excludeTitles: arch.bookmarks.slice(0, 30).map((b) => b.item.title),
+      favoriteSeeds: arch.favoriteSeeds.slice(0, 10).map((s) => ({ title: s.title, media: s.media, whyLiked: s.whyLiked })),
+      tasteSummary: arch.tasteProfile ? `${arch.tasteProfile.personaTitle}: ${arch.tasteProfile.editorialSummary}`.slice(0, 400) : "",
+    });
+    const items = r.error ? [] : aiItems(r.data.items, "rec");
+    if (items.length > 0) {
+      showResults(items, String(r.data.curationTitle || "오늘의 결에 맞춘 큐레이션"), String(r.data.editorialNote || ""), summary, "mood", null);
+    } else {
+      const local = recommendByMood({ moods, situation, text, filters }).map(({ work }) => workToItem(work, WORKS.findIndex((w) => w.id === work.id)));
+      if (local.length > 0) showResults(local, headlineFor(moods), [sit ? `상황: ${sit}.` : "", moods.length ? `분위기 ${moods.length}개를 반영했어요.` : ""].filter(Boolean).join(" "), summary, "mood", `${reasonText(r.error, r.code)} 시험용 목록에서 골랐어요.`);
+      else setError(r.error ?? "조건에 맞는 작품을 찾지 못했어요. 조건을 줄여 보세요.");
+    }
+    setLoading(false);
+  }
+
+  async function submitFav() {
+    if (loading) return;
+    setLoading(true); setError(null);
+    const title = favTitle.trim();
+    const reasons = favReasons.map((x) => x.trim()).filter(Boolean);
+    const targets = filters.media.length ? filters.media.filter((m) => m !== favMedia) : MEDIA_LIST.filter((m) => m !== favMedia);
+    const summary = `인생작 「${title}」(${MEDIA_LABEL[favMedia]})`;
+    const r = await callApi("/api/recommend/crossover", {
+      seeds: [{ title, media: favMedia, whyLiked: reasons.join(", ") }], media: targets.length ? targets : MEDIA_LIST, filters: apiFilters(),
+      excludeTitles: arch.bookmarks.slice(0, 30).map((b) => b.item.title),
+    });
+    const items = r.error ? [] : aiItems(r.data.items, "cross");
+    if (items.length > 0) {
+      showResults(items, String(r.data.sharedDnaTitle || "매체를 잇는 서사의 결"), String(r.data.sharedDnaSummary || ""), summary, "crossover", null);
+    } else {
+      const local = recommendByFavorite({ title, media: favMedia, reasons, filters }).map(({ work }) => workToItem(work, WORKS.findIndex((w) => w.id === work.id)));
+      if (local.length > 0) showResults(local, `「${title}」의 결을 닮은 다른 매체의 작품들`, `${MEDIA_LABEL[favMedia]} 외 다른 매체에서 골랐어요.`, summary, "crossover", `${reasonText(r.error, r.code)} 시험용 목록에서 골랐어요.`);
+      else setError(r.error ?? "결이 닮은 작품을 찾지 못했어요. 이유를 더 적어 보세요.");
+    }
+    setLoading(false);
+  }
+
+  /** 작품 카드·상세에서 '다른 매체로 이어 보기' — 인생작 입력창에 채워 주고 이동 */
+  function startCrossoverFrom(item: RecItem) {
+    setFavTitle(item.title);
+    setFavMedia(item.media);
+    setFavReasons([item.moodTags.join(", "), "", ""]);
+    setFilters((f) => ({ ...f, media: MEDIA_LIST.filter((m) => m !== item.media) }));
+    setDetail(null);
+    setMode("crossover");
+    window.setTimeout(() => workspace.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }
+
+  function trackPlatform(item: RecItem, platformName: string) {
+    if (!arch.isBookmarked(item)) {
+      arch.upsertStatus(item, "in_progress");
+      showToast(`"${item.title}"을(를) 감상 중으로 보관함에 기록하고 ${platformName}으로 이동합니다.`);
+    } else {
+      showToast(`${platformName}에서 "${item.title}" 열람 페이지를 엽니다.`);
+    }
   }
 
   function goPanel(m: Mode) {
@@ -115,15 +198,23 @@ export default function Home() {
       const s = arch.favoriteSeeds.find((x) => x.id === seed);
       if (s) { setFavTitle(s.title); setFavMedia(s.media); setFavReasons([s.whyLiked, "", ""]); }
     }
+    const qTitle = q.get("title");
+    const qMedia = normalizeMedia(q.get("media"));
+    if (qTitle && qMedia) {
+      setMode("crossover");
+      setFavTitle(qTitle.slice(0, 100));
+      setFavMedia(qMedia);
+      setFilters((f) => ({ ...f, media: MEDIA_LIST.filter((m) => m !== qMedia) }));
+    }
     if (prompt) { setMode("mood"); setText(prompt.slice(0, 500)); }
     if (restore) {
       const h = arch.history.find((x) => x.id === restore);
-      if (h) {
-        const found = h.workIds.flatMap((id) => WORKS.filter((w) => w.id === id).map((work) => ({ work, score: 0 })));
+      if (h && h.items.length > 0) {
         setMode(h.mode);
-        setResults(found);
+        setResults(h.items);
         setHeadline(h.headline);
-        setNote("이전 큐레이션 기록을 다시 불러왔어요.");
+        setNote(`이전 큐레이션 기록을 다시 불러왔어요.${h.querySummary ? ` (${h.querySummary})` : ""}`);
+        setNotice(null);
       }
     }
     if (q.toString()) window.history.replaceState(null, "", window.location.pathname);
@@ -212,7 +303,7 @@ export default function Home() {
                 </div>
                 <div className="cta-row">
                   <p>추천 결과는 서점(예스24·교보문고·알라딘), OTT(넷플릭스·티빙·왓챠 등), 웹툰 플랫폼과 바로 연결됩니다.</p>
-                  <button className="cta" disabled={!canMood} onClick={submitMood}>맞춤 작품 추천받기 →</button>
+                  <button className="cta" disabled={!canMood || loading} onClick={submitMood}>{loading ? "추천을 고르는 중…" : "맞춤 작품 추천받기 →"}</button>
                 </div>
               </>
             ) : (
@@ -241,28 +332,33 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="cta-row">
-                  <p>입력한 작품이 목록에 있으면 그 작품의 결을, 없으면 적어 주신 이유의 키워드를 기준으로 찾아요.</p>
-                  <button className="cta" disabled={!canFav} onClick={submitFav}>결이 닮은 작품 찾기 →</button>
+                  <p>입력한 인생작의 서사·정서와 적어 주신 이유를 바탕으로, 선택한 매체(기본: 다른 매체 전체)에서 결이 닮은 작품을 찾아요.</p>
+                  <button className="cta" disabled={!canFav || loading} onClick={submitFav}>{loading ? "작품을 찾는 중…" : "결이 닮은 작품 찾기 →"}</button>
                 </div>
               </>
             )}
           </section>
+
+          {loading && <div className="empty" role="status" style={{ marginTop: 24 }}>큐레이션을 준비하고 있어요. 보통 10~20초 정도 걸립니다…</div>}
+          {error && <div className="msg err" role="alert" style={{ marginTop: 24 }}>{error}</div>}
 
           {results && (
             <section className="results" id="results">
               <div className="mono" style={{ color: "var(--text-muted)" }}>CURATED EDITION · {results.length} WORKS</div>
               <h2 className="font-editorial">{headline}</h2>
               <p className="note">{note}</p>
+              {notice && <div className="msg" role="status">{notice}</div>}
               {results.length === 0 ? (
                 <div className="empty">조건에 맞는 작품을 찾지 못했어요. 세부 조건을 줄이거나 분위기 키워드를 바꿔 보세요.</div>
               ) : (
                 <div className="cards">
-                  {results.map(({ work }) => (
-                    <Card key={work.id} work={work} prefer={filters.platforms} saved={arch.isBookmarked(work.id)} onSave={() => arch.toggleBookmark(work.id)} onCross={() => crossover(work)} />
+                  {results.map((item) => (
+                    <RecCard key={`${item.media}-${item.title}`} item={item} prefer={filters.platforms} saved={arch.isBookmarked(item)}
+                      onSave={() => arch.toggleBookmark(item)} onCross={() => startCrossoverFrom(item)} onOpen={() => setDetail(item)} onTrack={(name) => trackPlatform(item, name)} />
                   ))}
                 </div>
               )}
-              <p className="disclaimer">현재는 시험용 큐레이션 목록에서 추천합니다. 감상처 버튼은 각 플랫폼의 검색 결과로 연결되며, 실제 이용 가능 여부는 플랫폼에서 확인해 주세요.</p>
+              <p className="disclaimer">AI가 추천한 작품 정보는 실제와 다를 수 있어요. 감상처 버튼은 각 플랫폼의 검색 결과로 연결되며, 이용 가능 여부는 플랫폼에서 확인해 주세요.</p>
               {bannerOpen && (
                 <div className="banner">
                   <Link href="/pricing">프리미엄 요금제 보기 →</Link>
@@ -275,8 +371,11 @@ export default function Home() {
       </main>
 
       <footer className="footer">
-        <div className="wrap">GYEOL (결) · 취향·상황·분위기 큐레이션 아카이브 · 작품 정보는 시험용 데이터입니다.</div>
+        <div className="wrap">GYEOL (결) · 취향·상황·분위기 큐레이션 아카이브</div>
       </footer>
+
+      {detail && <WorkDetailModal item={detail} onClose={() => setDetail(null)} onCross={startCrossoverFrom} onTrack={trackPlatform} />}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </>
   );
 }
@@ -340,42 +439,5 @@ function FilterPanel({ filters, setFilters }: { filters: Filters; setFilters: (f
         ))}
       </div>
     </section>
-  );
-}
-
-function Card({ work, prefer, saved, onSave, onCross }: { work: Work; prefer: string[]; saved: boolean; onSave: () => void; onCross: () => void }) {
-  const idx = WORKS.findIndex((w) => w.id === work.id) + 1;
-  const stamp = `${MEDIA_STAMP[work.media]} · ${work.id.slice(0, 2).toUpperCase()}-${String(idx).padStart(2, "0")}`;
-  return (
-    <article className="card">
-      <div className="cover-box">
-        <div className="stamp mono">{stamp}</div>
-        <div className={`cover c-${work.media}`}>
-          <div className="t font-editorial">{work.title}</div>
-          <div className="c">{work.creator}</div>
-        </div>
-        <div className="castband">{work.cast ? work.cast.join(" · ") : " "}</div>
-      </div>
-      <div className="rec-body">
-        <div className="meta"><b>{MEDIA_LABEL[work.media]}</b> · {work.length ? `${work.length} · ` : ""}{work.finished ? "완결" : "연재·방영 중"}</div>
-        <h3 className="font-editorial">{work.title}</h3>
-        <p className="by">{work.creator}</p>
-        <p className="reason">{work.reason}</p>
-        <div className="tags">{work.moods.map((m) => <span className="tag" key={m}>{MOODS.find((x) => x.id === m)?.label}</span>)}</div>
-      </div>
-      <div className="rec-footer">
-        <div className="links">
-          {work.platforms.map((pid) => {
-            const p = PLATFORM_BY_ID[pid];
-            if (!p) return null;
-            return <a key={pid} className={`linkchip ${prefer.includes(pid) ? "pref" : ""}`} href={p.search(work.title)} target="_blank" rel="noopener noreferrer">{p.name}</a>;
-          })}
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button className="icon" title="다른 매체 크로스오버 추천" aria-label="다른 매체 크로스오버 추천" onClick={onCross}>⇄</button>
-          <button className={`icon ${saved ? "on" : ""}`} title="보관함 저장" aria-label="보관함 저장" aria-pressed={saved} onClick={onSave}>🔖</button>
-        </div>
-      </div>
-    </article>
   );
 }

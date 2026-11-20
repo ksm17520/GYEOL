@@ -96,7 +96,7 @@ export function ruleBasedProfile(input: TasteInput): TasteProfile {
       const id = labelToId.get(l);
       if (id) add(id, w);
     }
-    for (const m of moodsFromText(b.memo)) add(m, 1);
+    for (const m of moodsFromText(`${b.memo} ${b.moods.join(" ")}`)) add(m, 1);
   }
   for (const s of input.favoriteSeeds) {
     const known = WORKS.find((w) => w.title === s.title);

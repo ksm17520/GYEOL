@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rateLimited } from "@/lib/ratelimit";
 import { buildPrompt, parseTasteInput, ruleBasedProfile } from "@/lib/taste";
 import type { TasteProfile } from "@/lib/archive-types";
 
@@ -52,6 +53,9 @@ async function callGemini(prompt: string, key: string): Promise<TasteProfile> {
 }
 
 export async function POST(req: Request) {
+  if (rateLimited(req, "profile", 6)) {
+    return NextResponse.json({ error: "요청이 너무 많아요. 잠시 후 다시 시도해 주세요." }, { status: 429 });
+  }
   let body: unknown;
   try {
     body = await req.json();

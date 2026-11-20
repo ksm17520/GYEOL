@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { useArchive } from "@/app/providers";
-import { MEDIA_LABEL, MOODS, WORKS, type Media } from "@/lib/data";
+import { MEDIA_LABEL, type Media } from "@/lib/data";
 import type { TasteProfile } from "@/lib/archive-types";
 
 const MEDIA_LIST = Object.keys(MEDIA_LABEL) as Media[];
@@ -15,13 +15,9 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const marks = bookmarks.flatMap((b) => {
-    const work = WORKS.find((w) => w.id === b.workId);
-    return work ? [{ b, work }] : [];
-  });
-  const total = marks.length + favoriteSeeds.length;
-  const completed = marks.filter(({ b }) => b.status === "completed").length;
-  const counts = Object.fromEntries(MEDIA_LIST.map((m) => [m, marks.filter(({ work }) => work.media === m).length + favoriteSeeds.filter((s) => s.media === m).length])) as Record<Media, number>;
+  const total = bookmarks.length + favoriteSeeds.length;
+  const completed = bookmarks.filter((b) => b.status === "completed").length;
+  const counts = Object.fromEntries(MEDIA_LIST.map((m) => [m, bookmarks.filter((b) => b.item.media === m).length + favoriteSeeds.filter((s) => s.media === m).length])) as Record<Media, number>;
 
   async function analyze() {
     setLoading(true); setError(null); setNotice(null);
@@ -30,9 +26,8 @@ export default function ProfilePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          bookmarks: marks.map(({ b, work }) => ({
-            title: work.title, media: work.media, status: b.status, rating: b.rating, memo: b.memo,
-            moods: work.moods.map((m) => MOODS.find((x) => x.id === m)?.label ?? m),
+          bookmarks: bookmarks.slice(0, 60).map((b) => ({
+            title: b.item.title, media: b.item.media, status: b.status, rating: b.rating, memo: b.memo, moods: b.item.moodTags,
           })),
           favoriteSeeds: favoriteSeeds.map((s) => ({ title: s.title, media: s.media, whyLiked: s.whyLiked })),
         }),
