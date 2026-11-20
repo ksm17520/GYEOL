@@ -166,11 +166,21 @@ export async function gatherScreenCandidates(
       const gids = Array.from(new Set(genres.map((g) => gmap[g]).filter((x): x is number => typeof x === "number")));
       const ids = await providerIds(kind);
       const ottNames = OTT_MAP.map((o) => o.name).filter((n) => ids.has(n) && (wanted.length === 0 || wanted.includes(n)));
-      // 시리즈의 방영 상태: TMDB with_status 0=방영 중(Returning Series), 3=종영(Ended)
-      const statusParam = kind === "drama" && opts.status ? `&with_status=${opts.status === "ongoing" ? 0 : 3}` : "";
+      // 시리즈의 방영 상태: TMDB with_status 0=방영 중(Returning Series), 3=종영(Ended).
+      // 시즌 사이에 쉬는 작품도 Returning Series라서, 방영 중은 최근 45일 안에 방영분이 있는 작품만,
+      // 종영은 Ended + 시즌 사이에 쉬는 작품(Returning이지만 최근 방영분 없음)으로 나눕니다.
+      const recent = new Date(Date.now() - 45 * DAY).toISOString().slice(0, 10);
+      const airingParam = `&with_status=0&air_date.gte=${recent}`;
+      const statusParam = kind === "drama" && opts.status ? (opts.status === "ongoing" ? airingParam : "&with_status=0|3") : "";
+      const dropAiring = kind === "drama" && opts.status === "finished";
       const perOtt = await Promise.all(ottNames.map(async (n) => {
         try {
-          const rows = await discover(kind, gids, era, `&with_watch_providers=${(ids.get(n) as number[]).join("|")}&with_watch_monetization_types=flatrate${statusParam}`);
+          const base = `&with_watch_providers=${(ids.get(n) as number[]).join("|")}&with_watch_monetization_types=flatrate`;
+          let rows = await discover(kind, gids, era, `${base}${statusParam}`);
+          if (dropAiring) {
+            const airing = new Set((await discover(kind, gids, era, `${base}${airingParam}`).catch(() => [])).map((r) => r.id));
+            rows = rows.filter((r) => !airing.has(r.id));
+          }
           return rows.slice(0, 12).map((r) => ({ c: toCand(r, kind, [n], "available") }));
         } catch { return []; }
       }));
@@ -180,7 +190,7 @@ export async function gatherScreenCandidates(
       let gone: Omit<ScreenCandidate, "id">[] = [];
       if (wanted.length === 0 && !(kind === "drama" && opts.status === "ongoing")) {
         try {
-          const rows = (await discover(kind, gids, era, `&sort_by=vote_average.desc&vote_count.gte=800${statusParam}`)).slice(0, 14);
+          const rows = (await discover(kind, gids, era, `&sort_by=vote_average.desc&vote_count.gte=800${dropAiring ? "&with_status=3" : statusParam}`)).slice(0, 14);
           const known = new Set(balanced.map((b) => b.tmdbId));
           const checks = await Promise.all(rows.filter((r) => !known.has(r.id)).map(async (r) => ({ r, p: await koreaProviders(kind, r.id) })));
           gone = checks.filter((x) => x.p && !x.p.any).slice(0, 3).map((x) => toCand(x.r, kind, [], "discontinued"));
@@ -306,7 +316,7 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       cast: castKo,
       characters: top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),
       lengthInfo: seasons > 1 ? `${seasons}시즌` : eps ? `${eps}부작` : "",
-      completionStatus: airing ? "방영 중" : String(detail.first_air_date ?? "").slice(0, 4),
+      completionStatus: airing ? "방영 중" : "종영",
     };
   } catch { return null; }
 }

@@ -128,7 +128,7 @@ export const mediaLabel = (m: Media) => MEDIA_LABEL[m];
 export function statusLabel(item: { media: Media; completionStatus: string; releaseYear: string }): string {
   const c = item.completionStatus.trim();
   if (item.media === "film") return c === "상영중" || c === "재개봉" ? c : /^\d{4}$/.test(c) ? c : item.releaseYear.slice(0, 4);
-  if (item.media === "drama") return /^방영\s*중$/.test(c) ? "방영 중" : /^\d{4}$/.test(c) ? c : item.releaseYear.slice(0, 4);
+  if (item.media === "drama") return /^방영\s*중$/.test(c) ? "방영 중" : c === "종영" ? "종영" : /^\d{4}$/.test(c) ? c : item.releaseYear.slice(0, 4);
   return c;
 }
 
