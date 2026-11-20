@@ -139,13 +139,39 @@ async function fillDetails(list: WebtoonCandidate[], limit: number, needFinished
   }));
 }
 
-/** 플랫폼이 한쪽으로 쏠리지 않도록, 첫 플랫폼별로 돌아가며 limit개를 고릅니다. */
+/** 네이버웹툰과 카카오(카카오페이지·카카오웹툰) 두 쪽으로 나눕니다. 양쪽에 올라 있는 작품은 "both"입니다. */
+export function webtoonSide(platforms: string[]): "naver" | "kakao" | "both" {
+  const n = platforms.includes("네이버웹툰");
+  const k = platforms.some((p) => p === "카카오페이지" || p === "카카오웹툰");
+  return n && k ? "both" : n ? "naver" : "kakao";
+}
+
+/** 네이버 쪽과 카카오 쪽이 번갈아 나오도록 limit개를 고릅니다(우열 없이 같은 수). "both"는 어느 쪽 차례에도 쓸 수 있습니다. */
 function balance(list: WebtoonCandidate[], limit: number): WebtoonCandidate[] {
-  const groups = new Map<WebtoonPlatform, WebtoonCandidate[]>();
-  for (const c of list) groups.set(c.platforms[0], [...(groups.get(c.platforms[0]) ?? []), c]);
+  const q = { naver: list.filter((c) => webtoonSide(c.platforms) === "naver"), kakao: list.filter((c) => webtoonSide(c.platforms) === "kakao") };
+  const both = list.filter((c) => webtoonSide(c.platforms) === "both");
   const out: WebtoonCandidate[] = [];
-  for (let i = 0; out.length < limit && i < list.length; i++) for (const g of groups.values()) if (g[i] && out.length < limit) out.push(g[i]);
+  let turn: "naver" | "kakao" = "naver";
+  while (out.length < limit && (q.naver.length || q.kakao.length || both.length)) {
+    const next = q[turn].shift() ?? both.shift() ?? q[turn === "naver" ? "kakao" : "naver"].shift();
+    if (next) out.push(next);
+    turn = turn === "naver" ? "kakao" : "naver";
+  }
   return out;
+}
+
+/** 추천 결과가 한쪽으로 쏠리면(차이 2개 이상) 많은 쪽을 덜어 냅니다. 양쪽에 올라 있는 작품은 세지 않고 덜어 내지도 않습니다. */
+export function trimSides<T extends { recommendedPlatforms: string[] }>(items: T[]): T[] {
+  const side = (i: T) => webtoonSide(i.recommendedPlatforms);
+  const n = items.filter((i) => side(i) === "naver").length, k = items.filter((i) => side(i) === "kakao").length, b = items.filter((i) => side(i) === "both").length;
+  let dropNaver = Math.max(0, n - (k + b + 1)), dropKakao = Math.max(0, k - (n + b + 1));
+  // 뒤쪽(AI가 덜 우선한) 작품부터 덜어 냅니다.
+  return [...items].reverse().filter((i) => {
+    const sd = side(i);
+    if (sd === "naver" && dropNaver > 0) { dropNaver--; return false; }
+    if (sd === "kakao" && dropKakao > 0) { dropKakao--; return false; }
+    return true;
+  }).reverse();
 }
 
 /**
@@ -167,6 +193,7 @@ export async function gatherWebtoonCandidates(keywords: string[], opts: { finish
   let pool = mergeCandidates(raws, 200);
   if (wanted.length) pool = pool.filter((c) => c.platforms.some((p) => wanted.includes(p)));
   if (finishedOnly) {
+    pool = balance(pool, 60); // 네이버·카카오가 번갈아 앞서도록 한 뒤 상세를 채웁니다
     await fillDetails(pool, 36, true);
     pool = pool.filter((c) => c.finished === true);
     return balance(pool, 40).map((c, i) => ({ ...c, id: `c${i + 1}` }));

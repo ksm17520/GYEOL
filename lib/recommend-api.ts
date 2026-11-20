@@ -1,6 +1,6 @@
 import { MEDIA_LABEL, type Media } from "./data";
 import { sanitizeItem, normalizeMedia, itemKey, type RecItem } from "./item";
-import { FALLBACK_KEYWORDS, WEBTOON_KEYWORDS, gatherWebtoonCandidates, type WebtoonCandidate } from "./candidates";
+import { FALLBACK_KEYWORDS, WEBTOON_KEYWORDS, gatherWebtoonCandidates, trimSides, type WebtoonCandidate } from "./candidates";
 
 const ALL_MEDIA: Media[] = ["book", "film", "drama", "webtoon"];
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
@@ -119,7 +119,7 @@ export function candidateBlock(c: WebtoonCandidate[]): string {
   if (c.length === 0) return "";
   const lines = c.map((x) => `${x.id} | ${x.title} | ${x.genre || "장르 미상"} | ${x.creator || "작가 미상"} | ${x.platforms.join("·")}${x.tags?.length ? ` | ${x.tags.join(" ")}` : ""}${x.synopsis ? ` | ${x.synopsis}` : ""}`).join("\n");
   return `[웹툰 후보 목록 — 지금 플랫폼에서 실제로 열람할 수 있는 작품]
-웹툰(webtoon)을 추천할 때는 반드시 아래 목록에서만 고르고, 고른 작품의 id를 candidateId에 그대로 적으세요. 목록에 없는 웹툰은 절대 추천하지 마세요. 특정 플랫폼의 작품만 몰아서 고르지 말고, 목록에 있는 여러 플랫폼의 작품을 고르게 섞으세요. title은 목록의 제목을 그대로 적으세요. 분위기 태그와 소개가 있는 작품은 그 정보로 사용자의 분위기에 맞는지 판단해 고르세요. 목록에 없는 줄거리는 아는 만큼만 쓰고, 확실하지 않으면 일반적인 분위기 설명으로 대신하세요.
+웹툰(webtoon)을 추천할 때는 반드시 아래 목록에서만 고르고, 고른 작품의 id를 candidateId에 그대로 적으세요. 목록에 없는 웹툰은 절대 추천하지 마세요. 웹툰 추천에는 네이버웹툰 작품과 카카오(카카오페이지·카카오웹툰) 작품을 반드시 모두 넣고, 두 쪽을 같은 수로 고르세요(예: 웹툰 4편이면 네이버 2편·카카오 2편). 어느 쪽이 더 낫다고 보지 말고 분위기에 맞는 작품만 쪽별로 고르세요. title은 목록의 제목을 그대로 적으세요. 분위기 태그와 소개가 있는 작품은 그 정보로 사용자의 분위기에 맞는지 판단해 고르세요. 목록에 없는 줄거리는 아는 만큼만 쓰고, 확실하지 않으면 일반적인 분위기 설명으로 대신하세요.
 id | 제목 | 장르 | 작가 | 열람 플랫폼 | (있으면) 분위기 태그 | 소개
 ${lines}
 
@@ -160,12 +160,16 @@ export async function webtoonPool(media: Media[], filters: ReqFilters, context: 
 export function applyCandidates(items: unknown, cands: WebtoonCandidate[]): unknown {
   if (cands.length === 0 || !Array.isArray(items)) return items;
   const by = new Map(cands.map((c) => [c.id, c]));
-  return items.flatMap((x) => {
+  const mapped = items.flatMap((x) => {
     if (!isObj(x) || normalizeMedia(x.mediaType ?? x.media) !== "webtoon") return [x];
     const c = by.get(clip(x.candidateId, 10));
     if (!c) return [];
     return [{ ...x, title: c.title, creator: c.creator || clip(x.creator, 100), recommendedPlatforms: c.platforms, coverImageUrl: c.coverImageUrl ?? undefined, verified: true }];
   });
+  // 네이버웹툰과 카카오 쪽이 한쪽으로 쏠리면 많은 쪽을 덜어 냅니다(우열 없이 같은 수).
+  const isWt = (x: unknown) => isObj(x) && normalizeMedia(x.mediaType ?? x.media) === "webtoon";
+  const kept = new Set<unknown>(trimSides(mapped.filter(isWt) as { recommendedPlatforms: string[] }[]));
+  return mapped.filter((x) => !isWt(x) || kept.has(x));
 }
 
 const S = { type: "STRING" };
