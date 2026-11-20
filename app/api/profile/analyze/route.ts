@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/ratelimit";
 import { buildPrompt, parseTasteInput, ruleBasedProfile } from "@/lib/taste";
 import type { TasteProfile } from "@/lib/archive-types";
+import { generateJson } from "@/lib/gemini";
+import { clovaConfigured } from "@/lib/clova";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
-
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+export const maxDuration = 60;
 
 const SCHEMA = {
   type: "OBJECT",
@@ -24,21 +24,8 @@ const SCHEMA = {
 const asStrings = (v: unknown, max: number) =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 8).map((x) => x.slice(0, max)) : [];
 
-async function callGemini(prompt: string, key: string): Promise<TasteProfile> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODEL)}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA },
-    }),
-    signal: AbortSignal.timeout(25000),
-  });
-  if (!res.ok) throw new Error(`Gemini ${res.status}`);
-  const data: unknown = await res.json();
-  const text = (data as { candidates?: { content?: { parts?: { text?: string }[] } }[] })?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("빈 응답");
-  const p = JSON.parse(text) as Record<string, unknown>;
+async function analyze(prompt: string): Promise<TasteProfile> {
+  const p = (await generateJson(prompt, SCHEMA, 25000)) as Record<string, unknown>;
   if (typeof p.personaTitle !== "string" || typeof p.editorialSummary !== "string") throw new Error("형식 오류");
   return {
     personaTitle: p.personaTitle.slice(0, 200),
@@ -67,12 +54,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "분석할 보관함 작품이나 인생작이 없습니다." }, { status: 400 });
   }
 
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
+  if (!process.env.GEMINI_API_KEY && !clovaConfigured()) {
     return NextResponse.json({ profile: ruleBasedProfile(input), notice: "AI 분석이 설정되지 않아 기본 분석 결과를 보여드려요." });
   }
   try {
-    return NextResponse.json({ profile: await callGemini(buildPrompt(input), key) });
+    return NextResponse.json({ profile: await analyze(buildPrompt(input)) });
   } catch {
     return NextResponse.json({ profile: ruleBasedProfile(input), notice: "AI 분석이 일시적으로 어려워 기본 분석 결과를 보여드려요." });
   }

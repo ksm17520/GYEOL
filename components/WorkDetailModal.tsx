@@ -46,6 +46,14 @@ export function WorkDetailModal({ item, onClose, onCross, onTrack }: {
   }, []);
 
   useEffect(() => { setMemo(bookmark?.memo ?? ""); }, [bookmark?.memo]);
+
+  // 메모 입력 중에 Esc·바깥 클릭으로 닫아도 저장되도록, 창이 닫힐 때 저장되지 않은 메모를 한 번 저장합니다.
+  const pending = useRef({ key: bookmark?.key, memo, saved: bookmark?.memo ?? "", update: a.updateBookmark });
+  pending.current = { key: bookmark?.key, memo, saved: bookmark?.memo ?? "", update: a.updateBookmark };
+  useEffect(() => () => {
+    const p = pending.current;
+    if (p.key && p.memo !== p.saved) p.update(p.key, { memo: p.memo });
+  }, []);
   useEffect(() => { if (bookmark?.verifiedAccess) setVerified(bookmark.verifiedAccess); }, [bookmark?.verifiedAccess]);
 
   const links = buildPlatformLinks(item.title, item.creator, item.media, item.recommendedPlatforms);

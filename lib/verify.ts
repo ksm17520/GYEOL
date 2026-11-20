@@ -7,8 +7,9 @@ import type { RecItem } from "./item";
  * (카카오페이지 웹툰처럼 조회 출처가 없는 실제 작품이 있기 때문). 전체 대기 시간은 제한합니다.
  */
 export async function verifyItems(items: RecItem[], budgetMs = 9000): Promise<RecItem[]> {
-  const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), budgetMs));
-  return Promise.all(
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), budgetMs); });
+  const done = await Promise.all(
     items.map(async (item) => {
       try {
         const url = await Promise.race([
@@ -21,4 +22,6 @@ export async function verifyItems(items: RecItem[], budgetMs = 9000): Promise<Re
       }
     }),
   );
+  clearTimeout(timer);
+  return done;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Media } from "@/lib/data";
 import { itemKey, type RecItem } from "@/lib/item";
 import {
@@ -34,8 +34,9 @@ type Ctx = ArchiveStore & {
 const ArchiveContext = createContext<Ctx | null>(null);
 
 function loadStore(): ArchiveStore {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(V1_KEY);
+    raw = localStorage.getItem(KEY) ?? localStorage.getItem(V1_KEY);
     if (raw) return sanitizeStore(JSON.parse(raw));
     const legacy = localStorage.getItem(LEGACY_SAVED_KEY);
     if (legacy) {
@@ -45,13 +46,18 @@ function loadStore(): ArchiveStore {
         return sanitizeStore({ bookmarks: ids.map((workId) => ({ workId, status: "want", rating: 0, memo: "", savedAt: now, updatedAt: now })) });
       }
     }
-  } catch { /* 손상된 저장값은 무시하고 새로 시작 */ }
+  } catch {
+    // 손상된 저장값은 새로 시작하되, 곧 덮어써지므로 원본을 다른 키에 한 번 보관합니다.
+    try { if (raw) localStorage.setItem(`${KEY}-corrupt`, raw); } catch { /* 보관 실패는 무시 */ }
+  }
   return EMPTY_STORE;
 }
 
 export function ArchiveProvider({ children }: { children: ReactNode }) {
   const [store, setStore] = useState<ArchiveStore>(EMPTY_STORE);
   const [ready, setReady] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const lastWritten = useRef<string | null>(null);
 
   useEffect(() => {
     setStore(loadStore());
@@ -60,8 +66,23 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!ready) return;
-    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch { /* 저장 공간 부족 등은 무시 */ }
+    try {
+      const json = JSON.stringify(store);
+      localStorage.setItem(KEY, json);
+      lastWritten.current = json;
+      setSaveError(false);
+    } catch { setSaveError(true); } // 저장 공간 부족·시크릿 모드 등: 화면에 알립니다.
   }, [store, ready]);
+
+  // 다른 탭에서 보관함이 바뀌면 다시 읽어, 오래된 탭이 새 내용을 덮어쓰지 않게 합니다.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== KEY || e.newValue === null || e.newValue === lastWritten.current) return;
+      setStore(loadStore());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const now = () => new Date().toISOString();
 
@@ -134,7 +155,10 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
   const importJson = useCallback((raw: string) => {
     try {
       const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed !== "object" || parsed === null) return { ok: false, error: "올바른 아카이브 파일이 아닙니다." };
+      const known = ["bookmarks", "favoriteSeeds", "history", "tasteProfile"];
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !known.some((k) => k in parsed)) {
+        return { ok: false, error: "올바른 아카이브 파일이 아닙니다. 기존 보관함은 그대로 두었어요." };
+      }
       setStore(sanitizeStore(parsed));
       return { ok: true };
     } catch {
@@ -147,7 +171,12 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
     [store, ready, getBookmark, isBookmarked, toggleBookmark, upsertStatus, updateBookmark, saveVerifiedAccess, removeBookmark, addFavoriteSeed, removeFavoriteSeed, addHistory, removeHistory, setTasteProfile, exportJson, importJson],
   );
 
-  return <ArchiveContext.Provider value={value}>{children}</ArchiveContext.Provider>;
+  return (
+    <ArchiveContext.Provider value={value}>
+      {children}
+      {saveError && <div className="toast" role="alert">브라우저에 저장하지 못했어요. 이 상태로 새로고침하면 방금 한 변경이 사라질 수 있어요.</div>}
+    </ArchiveContext.Provider>
+  );
 }
 
 export function useArchive(): Ctx {

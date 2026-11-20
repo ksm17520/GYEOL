@@ -42,6 +42,11 @@ export default function ArchivePage() {
   async function importFile(file: File | undefined) {
     if (!file) return;
     if (file.size > 2_000_000) { setMessage("파일이 너무 큽니다. (최대 2MB)"); return; }
+    const hasData = a.bookmarks.length + a.favoriteSeeds.length + a.history.length > 0;
+    if (hasData && !window.confirm("불러오면 지금 보관함이 파일 내용으로 바뀝니다. 계속할까요?")) {
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
     const r = a.importJson(await file.text());
     setMessage(r.ok ? "아카이브를 불러왔습니다. 기존 보관함 내용은 불러온 내용으로 바뀌었어요." : r.error ?? "불러오기에 실패했습니다.");
     if (fileRef.current) fileRef.current.value = "";
