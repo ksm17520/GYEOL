@@ -26,6 +26,7 @@ Claude Code가 매번 가장 먼저 읽는 작업 규칙입니다. 문서 우선
 | `GEMINI_MODEL` | 기본 `gemini-3.5-flash-lite`(무료 등급 분당 15회·하루 500회. flash 계열은 분당 5회·하루 20회라 금방 429) |
 | `CLOVASTUDIO_API_KEY` | (선택) 네이버 CLOVA Studio(HyperCLOVA X). 있으면 Gemini 실패 시 이어서 사용 (`AI_PROVIDERS`로 순서 조정) |
 | `TMDB_API_KEY` | 영화·드라마 포스터 (선택) |
+| `Yes24_API_Key` | (선택) 예스24 Open API 키(`X-Api-Key` 헤더, 이름은 대소문자 그대로). 있으면 책 추천을 예스24 판매 도서 후보 목록으로 만들고 표지·쪽수도 예스24 값을 씀. 이용약관상 책 카드에 예스24 출처·상품 링크를 표기(없으면 AI가 직접 쓴 책 정보로 대체, `출처 미확인`) |
 | `KMDB_API_KEY` | (선택) KMDb(한국영상자료원) 오픈 API 서비스키. 국내 개봉 영화의 감독·배우를 한글로 반영(극중 이름·드라마는 미지원) |
 | `COVER_EXTENDED_SOURCES` | 예스24·알라딘·IMDb·네이버 비공식 출처. **유료 결제를 열기 전에 `off`** |
 

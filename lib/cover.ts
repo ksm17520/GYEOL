@@ -1,9 +1,10 @@
+import { yes24Cover } from "./yes24";
 import type { Media } from "./data";
 
 export type CoverTarget = { title: string; originalTitle?: string; englishTitle?: string; creator: string; media: Media; releaseYear?: string };
 
 /**
- * 확장 출처(예스24·알라딘 검색 페이지 파싱, IMDb 비공식 검색, 네이버웹툰 비공식 API)를 쓸지 여부.
+ * 확장 출처(IMDb 비공식 검색, 네이버웹툰 비공식 API)를 쓸지 여부.
  * 무료 서비스 단계에서만 켜 두는 것을 전제로 하며, 기본값은 켜짐입니다.
  * 결제(유료) 서비스를 열 때는 환경 변수 COVER_EXTENDED_SOURCES=off 로 끄세요.
  * 이 출처들은 공식 API가 아니라 해당 사이트의 이용 약관에 어긋날 수 있고, 사이트 구조가 바뀌면 동작하지 않을 수 있습니다.
@@ -11,7 +12,7 @@ export type CoverTarget = { title: string; originalTitle?: string; englishTitle?
 export const EXTENDED_SOURCES = (process.env.COVER_EXTENDED_SOURCES ?? "on").toLowerCase() !== "off";
 
 // 공개 API가 제공하는 이미지 호스트
-const EXACT_HOSTS = new Set(["covers.openlibrary.org", "upload.wikimedia.org", "static.tvmaze.com", "s4.anilist.co", "image.tmdb.org"]);
+const EXACT_HOSTS = new Set(["covers.openlibrary.org", "upload.wikimedia.org", "static.tvmaze.com", "s4.anilist.co", "image.tmdb.org", "image.yes24.com"]);
 const SUFFIX_HOSTS = [".mzstatic.com", ".archive.org"];
 // 확장 출처의 이미지 호스트 (EXTENDED_SOURCES가 켜져 있을 때만 허용)
 const EXTENDED_HOSTS = new Set(["image.yes24.com", "image.aladin.co.kr", "contents.kyobobook.co.kr", "image-comic.pstatic.net", "shared-comic.pstatic.net", "m.media-amazon.com", "movie-phinf.pstatic.net", "search.pstatic.net"]);
@@ -61,28 +62,6 @@ async function getText(url: string, ms = 2800): Promise<string> {
 }
 
 // ---- 확장 출처 (EXTENDED_SOURCES) ----
-async function yes24(title: string, creator: string): Promise<string | null> {
-  for (const q of creator ? [`${title} ${creator}`, title] : [title]) {
-    try {
-      const html = await getText(`https://www.yes24.com/Product/Search?domain=BOOK&query=${encodeURIComponent(q)}`);
-      const m = html.match(/https:\/\/image\.yes24\.com\/goods\/(\d+)\/[A-Z]+/);
-      if (m?.[1]) return `https://image.yes24.com/goods/${m[1]}/L`;
-    } catch { /* 다음 후보 */ }
-  }
-  return null;
-}
-
-async function aladin(title: string, creator: string): Promise<string | null> {
-  for (const q of creator ? [`${title} ${creator}`, title] : [title]) {
-    try {
-      const html = await getText(`https://www.aladin.co.kr/search/wsearchresult.aspx?SearchTarget=Book&SearchWord=${encodeURIComponent(q)}`);
-      const m = html.match(/https:\/\/image\.aladin\.co\.kr\/product\/\d+\/\d+\/cover\d*\/[^"'\s>]+/);
-      if (m?.[0]) return m[0].replace(/\/cover\d+\//, "/cover500/");
-    } catch { /* 다음 후보 */ }
-  }
-  return null;
-}
-
 async function imdb(t: CoverTarget, kind: "film" | "drama"): Promise<string | null> {
   const queries = Array.from(new Set([t.englishTitle, t.originalTitle, t.title].filter((x): x is string => Boolean(x))));
   const year = Number(t.releaseYear) || 0;
@@ -286,7 +265,8 @@ export async function resolveCoverUrl(t: CoverTarget): Promise<string | null> {
   const intl = Array.from(new Set([t.englishTitle, t.originalTitle, t.title].filter((x): x is string => Boolean(x))));
   let raw: string | null = null;
   if (t.media === "book") {
-    raw = (EXTENDED_SOURCES ? (await yes24(t.title, t.creator)) || (await aladin(t.title, t.creator)) : null) ||
+    // 예스24 Open API(제목·저자가 맞는 책만). 예스24·알라딘 검색 화면의 첫 결과는 제목 확인 없이 쓰이므로 책에서도 뺐습니다.
+    raw = (await yes24Cover(t.title, t.creator)) ||
       (await openLibrary(t.englishTitle || t.originalTitle || t.title)) || (await itunes([t.title, t.englishTitle ?? ""], "ebook")) || (await wikipedia([`${t.title} ${t.creator}`.trim(), t.title]));
   } else if (t.media === "film") {
     raw = (await tmdb(t, "film")) || (EXTENDED_SOURCES ? (await imdb(t, "film")) || (await naverPoster(t.title, "film")) : null) || (await itunes([t.title, t.englishTitle ?? ""], "movie")) || (await wikipedia([`${t.title} 영화`, t.englishTitle || t.title]));

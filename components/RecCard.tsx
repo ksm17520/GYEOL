@@ -19,6 +19,7 @@ export function RecCard({ item, prefer, saved, onSave, onCross, onOpen, onTrack 
         <div className="meta"><b>{MEDIA_LABEL[item.media]}</b>{item.lengthInfo ? ` · ${item.lengthInfo}` : ""}{statusLabel(item) ? ` · ${statusLabel(item)}` : ""}{item.source === "ai" && !item.verified ? " · 출처 미확인" : ""}{item.availability === "discontinued" ? " · 서비스가 중단된 콘텐츠" : ""}</div>
         <h3 className="font-editorial"><button className="title-btn" onClick={onOpen}>{item.title}</button></h3>
         {creator && <p className="by">{creator}</p>}
+        {item.media === "book" && item.sourceUrl && <p className="by">출처 <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">예스24 ↗</a></p>}
         <p className="reason">{item.matchReason || item.logline}</p>
         <div className="tags">{item.moodTags.map((t) => <span className="tag" key={t}>{t}</span>)}</div>
       </div>

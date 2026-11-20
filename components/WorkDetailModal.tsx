@@ -103,6 +103,7 @@ export function WorkDetailModal({ item, onClose, onCross, onTrack }: {
                 {item.availability === "discontinued" && <div><dt>서비스 상태</dt><dd>서비스가 중단된 콘텐츠 · 지금 한국 OTT에서는 볼 수 없어요. 유튜브 클립·예고편을 찾아보거나 아래 '실시간 감상처 확인'을 눌러 보세요.</dd></div>}
                 {item.availability === "available" && (item.media === "film" || item.media === "drama") && <div><dt>OTT 정보</dt><dd>TMDB 한국 제공 정보 기준이에요. 시점에 따라 달라질 수 있어 '실시간 감상처 확인'으로 다시 확인할 수 있어요.</dd></div>}
                 {item.moodTags.length > 0 && <div><dt>분위기 결</dt><dd>{item.moodTags.join(" · ")}</dd></div>}
+                {item.media === "book" && item.sourceUrl && <div><dt>도서 정보</dt><dd>출처 <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">예스24 ↗</a></dd></div>}
               </dl>
             </div>
 

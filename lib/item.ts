@@ -33,6 +33,8 @@ export type RecItem = {
   source: "ai" | "sample";
   /** 외부 출처(서점·TMDB 등)에서 실제 작품으로 확인되었는지. AI 추천에만 서버가 채웁니다. */
   verified?: boolean;
+  /** 책: 예스24 상품 상세 페이지(출처 표기·링크용, https://www.yes24.com 또는 m.yes24.com만 허용) */
+  sourceUrl?: string;
   /** 영화·시리즈: 지금 한국 OTT에서 볼 수 없으면 "discontinued"(서비스가 중단된 콘텐츠) */
   availability?: "available" | "discontinued";
 };
@@ -86,6 +88,7 @@ export function sanitizeItem(raw: unknown, fallbackId: string, source: "ai" | "s
     accentTone: tone,
     source: raw.source === "sample" ? "sample" : source,
     verified: raw.verified === true ? true : undefined,
+    sourceUrl: typeof raw.sourceUrl === "string" && /^https:\/\/(www|m)\.yes24\.com\//.test(raw.sourceUrl) ? raw.sourceUrl.slice(0, 300) : undefined,
     availability: raw.availability === "discontinued" ? "discontinued" : raw.availability === "available" ? "available" : undefined,
   };
 }
