@@ -2,12 +2,32 @@ import type { Media } from "./data";
 
 export type CoverTarget = { title: string; originalTitle?: string; englishTitle?: string; creator: string; media: Media; releaseYear?: string };
 
-// 공개 API가 제공하는 이미지 호스트만 허용합니다.
+/**
+ * 확장 출처(예스24·알라딘 검색 페이지 파싱, IMDb 비공식 검색, 네이버웹툰 비공식 API)를 쓸지 여부.
+ * 무료 서비스 단계에서만 켜 두는 것을 전제로 하며, 기본값은 켜짐입니다.
+ * 결제(유료) 서비스를 열 때는 환경 변수 COVER_EXTENDED_SOURCES=off 로 끄세요.
+ * 이 출처들은 공식 API가 아니라 해당 사이트의 이용 약관에 어긋날 수 있고, 사이트 구조가 바뀌면 동작하지 않을 수 있습니다.
+ */
+export const EXTENDED_SOURCES = (process.env.COVER_EXTENDED_SOURCES ?? "on").toLowerCase() !== "off";
+
+// 공개 API가 제공하는 이미지 호스트
 const EXACT_HOSTS = new Set(["covers.openlibrary.org", "upload.wikimedia.org", "static.tvmaze.com", "s4.anilist.co"]);
 const SUFFIX_HOSTS = [".mzstatic.com", ".archive.org"];
+// 확장 출처의 이미지 호스트 (EXTENDED_SOURCES가 켜져 있을 때만 허용)
+const EXTENDED_HOSTS = new Set(["image.yes24.com", "image.aladin.co.kr", "contents.kyobobook.co.kr", "image-comic.pstatic.net", "shared-comic.pstatic.net", "m.media-amazon.com"]);
 
 export function isAllowedCoverHost(host: string): boolean {
-  return EXACT_HOSTS.has(host) || SUFFIX_HOSTS.some((s) => host.endsWith(s));
+  return EXACT_HOSTS.has(host) || SUFFIX_HOSTS.some((s) => host.endsWith(s)) || (EXTENDED_SOURCES && EXTENDED_HOSTS.has(host));
+}
+
+/** 일부 이미지 서버는 Referer가 없으면 요청을 거부합니다. */
+export function refererFor(host: string): string | undefined {
+  if (host.includes("yes24.com")) return "https://www.yes24.com/";
+  if (host.includes("aladin.co.kr")) return "https://www.aladin.co.kr/";
+  if (host.includes("kyobobook.co.kr")) return "https://www.kyobobook.co.kr/";
+  if (host.includes("pstatic.net")) return "https://comic.naver.com/";
+  if (host.includes("media-amazon.com")) return "https://www.imdb.com/";
+  return undefined;
 }
 
 const cache = new Map<string, string | null>();
@@ -23,6 +43,67 @@ async function getJson(url: string, init: RequestInit = {}, ms = 2800): Promise<
   const res = await fetch(url, { ...init, headers: { "User-Agent": "GyeolArchive/1.0", ...(init.headers ?? {}) }, signal: AbortSignal.timeout(ms) });
   if (!res.ok) throw new Error(String(res.status));
   return res.json();
+}
+
+async function getText(url: string, ms = 2800): Promise<string> {
+  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(ms) });
+  if (!res.ok) throw new Error(String(res.status));
+  return res.text();
+}
+
+// ---- 확장 출처 (EXTENDED_SOURCES) ----
+async function yes24(title: string, creator: string): Promise<string | null> {
+  for (const q of creator ? [`${title} ${creator}`, title] : [title]) {
+    try {
+      const html = await getText(`https://www.yes24.com/Product/Search?domain=BOOK&query=${encodeURIComponent(q)}`);
+      const m = html.match(/https:\/\/image\.yes24\.com\/goods\/(\d+)\/[A-Z]+/);
+      if (m?.[1]) return `https://image.yes24.com/goods/${m[1]}/L`;
+    } catch { /* 다음 후보 */ }
+  }
+  return null;
+}
+
+async function aladin(title: string, creator: string): Promise<string | null> {
+  for (const q of creator ? [`${title} ${creator}`, title] : [title]) {
+    try {
+      const html = await getText(`https://www.aladin.co.kr/search/wsearchresult.aspx?SearchTarget=Book&SearchWord=${encodeURIComponent(q)}`);
+      const m = html.match(/https:\/\/image\.aladin\.co\.kr\/product\/\d+\/\d+\/cover\d*\/[^"'\s>]+/);
+      if (m?.[0]) return m[0].replace(/\/cover\d+\//, "/cover500/");
+    } catch { /* 다음 후보 */ }
+  }
+  return null;
+}
+
+async function imdb(t: CoverTarget, kind: "film" | "drama"): Promise<string | null> {
+  const queries = Array.from(new Set([t.englishTitle, t.originalTitle, t.title].filter((x): x is string => Boolean(x))));
+  const year = Number(t.releaseYear) || 0;
+  for (const q of queries) {
+    try {
+      const d = (await getJson(`https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(q)}.json`)) as { d?: { l?: string; y?: number; qid?: string; i?: { imageUrl?: string } }[] };
+      const scored = (d.d ?? []).filter((x) => x.i?.imageUrl).map((x) => {
+        let score = 0;
+        if (x.l && close(x.l, q)) score += 5;
+        if (year && x.y && Math.abs(x.y - year) <= 1) score += 4;
+        if (kind === "film" && x.qid === "movie") score += 3;
+        if (kind === "drama" && (x.qid === "tvSeries" || x.qid === "tvMiniSeries")) score += 3;
+        return { x, score };
+      }).sort((a, b) => b.score - a.score);
+      const best = scored[0];
+      if (best && best.score >= 3 && best.x.i?.imageUrl) return best.x.i.imageUrl.replace(/_V1_\.jpg$/i, "_V1_SX600.jpg");
+    } catch { /* 다음 후보 */ }
+  }
+  return null;
+}
+
+async function naverWebtoon(title: string): Promise<string | null> {
+  try {
+    const d = (await getJson(`https://comic.naver.com/api/search/all?keyword=${encodeURIComponent(title)}`)) as {
+      searchWebtoonResult?: { searchViewList?: { titleName?: string; thumbnailUrl?: string }[] };
+      searchNbooksComicResult?: { searchViewList?: { titleName?: string; thumbnailUrl?: string }[] };
+    };
+    const pool = [...(d.searchWebtoonResult?.searchViewList ?? []), ...(d.searchNbooksComicResult?.searchViewList ?? [])];
+    return pool.find((x) => x.thumbnailUrl && x.titleName && close(x.titleName, title))?.thumbnailUrl ?? null;
+  } catch { return null; }
 }
 
 async function openLibrary(q: string): Promise<string | null> {
@@ -100,13 +181,15 @@ export async function resolveCoverUrl(t: CoverTarget): Promise<string | null> {
   const intl = Array.from(new Set([t.englishTitle, t.originalTitle, t.title].filter((x): x is string => Boolean(x))));
   let raw: string | null = null;
   if (t.media === "book") {
-    raw = (await openLibrary(t.englishTitle || t.originalTitle || t.title)) || (await itunes([t.title, t.englishTitle ?? ""], "ebook")) || (await wikipedia([`${t.title} ${t.creator}`.trim(), t.title]));
+    raw = (EXTENDED_SOURCES ? (await yes24(t.title, t.creator)) || (await aladin(t.title, t.creator)) : null) ||
+      (await openLibrary(t.englishTitle || t.originalTitle || t.title)) || (await itunes([t.title, t.englishTitle ?? ""], "ebook")) || (await wikipedia([`${t.title} ${t.creator}`.trim(), t.title]));
   } else if (t.media === "film") {
-    raw = (await itunes([t.title, t.englishTitle ?? ""], "movie")) || (await wikipedia([`${t.title} 영화`, t.englishTitle || t.title]));
+    raw = (EXTENDED_SOURCES ? await imdb(t, "film") : null) || (await itunes([t.title, t.englishTitle ?? ""], "movie")) || (await wikipedia([`${t.title} 영화`, t.englishTitle || t.title]));
   } else if (t.media === "drama") {
-    raw = (await tvmaze(intl)) || (await wikipedia([`${t.title} 드라마`, t.englishTitle || t.title]));
+    raw = (EXTENDED_SOURCES ? await imdb(t, "drama") : null) || (await tvmaze(intl)) || (await wikipedia([`${t.title} 드라마`, t.englishTitle || t.title]));
   } else {
-    raw = (await anilist([t.title, t.englishTitle ?? ""])) || (await wikipedia([t.title, t.englishTitle ?? ""]));
+    raw = (EXTENDED_SOURCES ? (await naverWebtoon(t.title)) || (await yes24(t.title, t.creator)) || (await aladin(t.title, t.creator)) : null) ||
+      (await anilist([t.title, t.englishTitle ?? ""])) || (await wikipedia([t.title, t.englishTitle ?? ""]));
   }
   let out: string | null = null;
   if (raw) {

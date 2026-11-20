@@ -1,4 +1,4 @@
-import { isAllowedCoverHost } from "@/lib/cover";
+import { isAllowedCoverHost, refererFor } from "@/lib/cover";
 import { rateLimited } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ export async function GET(req: Request) {
     if (target.protocol !== "https:" || !isAllowedCoverHost(target.hostname)) return new Response("Disallowed image host", { status: 403 });
     let up: Response;
     try {
-      up = await fetch(target, { redirect: "manual", headers: { "User-Agent": "GyeolArchive/1.0" }, signal: AbortSignal.timeout(4500) });
+      up = await fetch(target, { redirect: "manual", headers: { "User-Agent": "Mozilla/5.0 (compatible; GyeolArchive/1.0)", ...(refererFor(target.hostname) ? { Referer: refererFor(target.hostname) as string } : {}) }, signal: AbortSignal.timeout(4500) });
     } catch { return new Response("Failed to fetch cover image", { status: 502 }); }
     if (up.status >= 300 && up.status < 400) {
       const loc = up.headers.get("location");
