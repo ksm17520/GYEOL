@@ -1,5 +1,5 @@
 import { getJson } from "./cover";
-import { kobisMovie } from "./kobis";
+import { kmdbMovie } from "./kmdb";
 
 export type ScreenKind = "film" | "drama";
 export type Availability = "available" | "discontinued";
@@ -250,8 +250,8 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       const top = (cr.cast ?? []).filter((c) => c.name).slice(0, 4);
       const crew = cr.crew ?? [];
       const directors = crew.filter((c) => c.job === "Director");
-      const [tmdbCreator, tmdbCast, nv] = await Promise.all([koNames(directors.length ? directors : crew.filter((c) => c.department === "Directing"), 2), Promise.all(top.map((c) => koName(c.id, c.name as string))), kobisMovie(detail.title ?? "", String(detail.release_date ?? "").slice(0, 4), detail.original_title ? [detail.original_title] : [])]);
-      // 국내 개봉작은 영화진흥위원회(KOBIS)의 한글 감독·배우·극중 이름을 우선하고, 없으면 TMDB 정보를 씁니다.
+      const [tmdbCreator, tmdbCast, nv] = await Promise.all([koNames(directors.length ? directors : crew.filter((c) => c.department === "Directing"), 2), Promise.all(top.map((c) => koName(c.id, c.name as string))), kmdbMovie(detail.title ?? "", String(detail.release_date ?? "").slice(0, 4), detail.original_title ? [detail.original_title] : [])]);
+      // 국내 개봉작은 KMDb(한국영상자료원)의 한글 감독·배우를 우선하고, 없으면 TMDB 정보를 씁니다.
       const creator = nv?.directors.length ? nv.directors.slice(0, 2).join(", ") : tmdbCreator;
       const castKo = top.map((c, i) => tmdbCast[i]);
       const castShown = nv?.actors.length ? nv.actors.slice(0, 4) : castKo;
@@ -264,8 +264,8 @@ export async function screenDetails(kind: ScreenKind, tmdbId: number): Promise<S
       return {
         creator,
         cast: castShown,
-        // 극중 이름: KOBIS에 있으면 그 한글 표기, 없으면 TMDB 표기
-        characters: nv?.characters.length ? nv.characters : top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),
+        // 극중 이름은 TMDB 표기(KMDb는 극중 이름을 주지 않음). 배우 이름은 위에서 정한 한글 표기와 맞춥니다.
+        characters: top.flatMap((c, i) => (keepCharacter(c.character) ? [`${String(c.character).slice(0, 30)}(${castKo[i]})`] : [])),
         lengthInfo: detail.runtime ? `${detail.runtime}분` : "",
         completionStatus: isPlaying ? (reopened ? "재개봉" : "상영중") : year,
       };
