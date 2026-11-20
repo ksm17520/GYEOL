@@ -14,12 +14,20 @@ export type Platform = {
   search: (q: string) => string;
 };
 
+/** 매체별 대표 묶음(감상처 링크를 보여 줄 때 그 매체의 전문 플랫폼을 앞에 두는 데 씁니다). */
+const MEDIA_GROUP: Record<Media, PlatformGroup> = { book: "bookstore", film: "ott", drama: "ott", webtoon: "webtoon" };
+
+/** 추천 매체에서 실제로 서비스하는 플랫폼인지. 매체를 하나도 고르지 않으면(전체 매체) 모두 고를 수 있습니다. */
+export const platformAllowed = (p: { media: Media[] }, media: Media[]): boolean => media.length === 0 || p.media.some((m) => media.includes(m));
+/** 선택한 플랫폼 id 중 현재 매체에서 쓸 수 있는 것만 남깁니다. */
+export const keepAllowedPlatforms = (ids: string[], media: Media[]): string[] => ids.filter((id) => { const p = PLATFORMS.find((x) => x.id === id); return p ? platformAllowed(p, media) : false; });
+
 const e = encodeURIComponent;
 
 export const PLATFORMS: Platform[] = [
   { id: "yes24", name: "예스24", aliases: ["예스24", "yes24"], group: "bookstore", media: ["book"], category: "도서·eBook", search: (q) => `https://www.yes24.com/Product/Search?domain=ALL&query=${e(q)}` },
-  { id: "kyobo", name: "교보문고", aliases: ["교보문고", "교보", "kyobo"], group: "bookstore", media: ["book"], category: "도서·eBook", search: (q) => `https://search.kyobobook.co.kr/search?keyword=${e(q)}` },
-  { id: "aladin", name: "알라딘", aliases: ["알라딘", "aladin"], group: "bookstore", media: ["book"], category: "도서·중고·eBook", search: (q) => `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchTarget=All&SearchWord=${e(q)}` },
+  { id: "kyobo", name: "교보문고", aliases: ["교보문고", "교보", "kyobo"], group: "bookstore", media: ["book", "webtoon"], category: "도서·eBook·웹툰(단행본·전자책)", search: (q) => `https://search.kyobobook.co.kr/search?keyword=${e(q)}` },
+  { id: "aladin", name: "알라딘", aliases: ["알라딘", "aladin"], group: "bookstore", media: ["book", "webtoon"], category: "도서·중고·eBook·웹툰(단행본·전자책)", search: (q) => `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchTarget=All&SearchWord=${e(q)}` },
   { id: "millie", name: "밀리의 서재", aliases: ["밀리의 서재", "밀리의서재", "밀리", "millie"], group: "bookstore", media: ["book"], category: "구독 전자책", search: (q) => `https://www.millie.co.kr/v3/search?keyword=${e(q)}` },
   { id: "ridi", name: "리디", aliases: ["리디", "리디북스", "ridi"], group: "bookstore", media: ["book", "webtoon"], category: "전자책·웹툰", search: (q) => `https://ridibooks.com/search?q=${e(q)}` },
   { id: "naverseries", name: "네이버 시리즈", aliases: ["네이버 시리즈", "네이버시리즈", "시리즈"], group: "bookstore", media: ["book", "webtoon"], category: "전자책·웹소설·웹툰", search: (q) => `https://series.naver.com/search/search.series?t=all&q=${e(q)}` },
@@ -60,9 +68,11 @@ export function buildPlatformLinks(title: string, creator: string, media: Media,
       name: p.name,
       category: p.category,
       url: p.search(p.id === "youtube" ? `${clean} ${media === "book" ? "북트레일러 리뷰" : "공식 예고편"}` : query),
+      native: PLATFORM_BY_ID[p.id]?.group === MEDIA_GROUP[media],
       isRecommended: recs.some((r) => p.aliases.some((a) => r.includes(a) || a.includes(r))),
     }))
-    .sort((a, b) => Number(b.isRecommended) - Number(a.isRecommended));
+    .sort((a, b) => Number(b.isRecommended) - Number(a.isRecommended) || Number(b.native) - Number(a.native))
+    .map(({ native: _native, ...rest }) => rest);
 }
 
 export function trailerUrl(title: string, media: Media): string {

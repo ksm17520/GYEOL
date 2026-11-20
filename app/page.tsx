@@ -9,7 +9,7 @@ import { RecCard } from "@/components/RecCard";
 import { WorkDetailModal } from "@/components/WorkDetailModal";
 import { MEDIA_LABEL, MOODS, SITUATIONS, WORKS, type Media, type MoodId, type SituationId } from "@/lib/data";
 import { normalizeMedia, sanitizeItem, workToItem, type RecItem } from "@/lib/item";
-import { GROUP_LABEL, PLATFORMS, platformNames, type PlatformGroup } from "@/lib/platforms";
+import { GROUP_LABEL, keepAllowedPlatforms, PLATFORMS, platformAllowed, platformNames, type PlatformGroup } from "@/lib/platforms";
 import {
   DEFAULT_FILTERS, activeFilterCount, headlineFor, recommendByFavorite, recommendByMood,
   type Filters,
@@ -63,7 +63,9 @@ export default function Home() {
       const has = f.media.includes(m);
       let media = f.media.length === 0 ? [m] : has ? f.media.filter((x) => x !== m) : [...f.media, m];
       if (media.length === 0 || media.length === MEDIA_LIST.length) media = [];
-      return { ...f, media };
+      // 매체를 바꾸면 그 매체에서 쓸 수 없는 플랫폼 선택은 풀고, 영화만 고르면 완결 상태 조건도 푼다(영화에는 적용하지 않음)
+      const filmOnly = media.length === 1 && media[0] === "film";
+      return { ...f, media, platforms: keepAllowedPlatforms(f.platforms, media), finishedOnly: filmOnly ? false : f.finishedOnly, ongoingOnly: filmOnly ? false : f.ongoingOnly };
     });
   }
 
@@ -110,7 +112,7 @@ export default function Home() {
     return (Array.isArray(raw) ? raw : []).slice(0, 8).map((x, i) => sanitizeItem(x, `${prefix}-${i}`, "ai")).filter((x): x is RecItem => x !== null);
   }
 
-  const apiFilters = () => ({ length: filters.length, finishedOnly: filters.finishedOnly, era: filters.era, platforms: platformNames(filters.platforms) });
+  const apiFilters = () => ({ length: filters.length, finishedOnly: filters.finishedOnly, ongoingOnly: filters.ongoingOnly, era: filters.era, platforms: platformNames(filters.platforms) });
   const reasonText = (e?: string, code?: string) => (code === "NO_KEY" ? "AI 추천이 아직 설정되지 않아" : `AI 추천을 불러오지 못해(${e ?? "알 수 없는 오류"})`);
 
   async function submitMood() {
@@ -408,6 +410,13 @@ function ArchiveArt() {
 
 function FilterPanel({ filters, setFilters }: { filters: Filters; setFilters: (f: Filters) => void }) {
   const groups: PlatformGroup[] = ["bookstore", "ott", "webtoon"];
+  // 완결 상태 칩의 이름은 고른 매체에 맞춰 바꿉니다(하나만 골랐을 때). 여러 매체면 공통 표현을 씁니다.
+  const only = filters.media.length === 1 ? filters.media[0] : null;
+  const filmOnly = only === "film";
+  const hasFilm = filters.media.includes("film");
+  const statusTitle = only === "webtoon" || only === "book" ? "연재 상태" : only === "drama" ? "방영 상태" : "연재·방영 상태";
+  const ongoingLabel = only === "drama" ? "방영 중" : only === "webtoon" || only === "book" ? "연재 중" : "연재·방영 중";
+  const finishedLabel = only === "drama" ? "종영" : "완결";
   const togglePlatform = (id: string) =>
     setFilters({ ...filters, platforms: filters.platforms.includes(id) ? filters.platforms.filter((x) => x !== id) : [...filters.platforms, id] });
   const opt = <K extends "length" | "era">(key: K, value: Filters[K], label: string) => (
@@ -418,7 +427,7 @@ function FilterPanel({ filters, setFilters }: { filters: Filters; setFilters: (f
       <div className="panel-head">
         <div>
           <h3>탐색 세부 조건 &amp; 구독 중인 플랫폼</h3>
-          <p>분량과 완결 여부, 이용 중인 플랫폼을 선택하면 바로 감상할 수 있는 작품을 우선 추천합니다.</p>
+          <p>분량과 연재·완결 상태, 이용 중인 플랫폼을 선택하면 바로 감상할 수 있는 작품을 우선 추천합니다.</p>
         </div>
         <button className="reset" onClick={() => setFilters({ ...DEFAULT_FILTERS, media: filters.media })}>조건 초기화</button>
       </div>
@@ -426,9 +435,11 @@ function FilterPanel({ filters, setFilters }: { filters: Filters; setFilters: (f
         <div><h4>선호 분량</h4><div className="stack">
           {opt("length", "all", "전체 분량")}{opt("length", "light", "가볍게 (단편/영화)")}{opt("length", "mid", "적당한 호흡")}{opt("length", "long", "긴 호흡 (장편/시리즈)")}
         </div></div>
-        <div><h4>완결 상태</h4><div className="stack">
-          <button className={`chip ${!filters.finishedOnly ? "on" : ""}`} onClick={() => setFilters({ ...filters, finishedOnly: false })}>전체</button>
-          <button className={`chip ${filters.finishedOnly ? "on" : ""}`} onClick={() => setFilters({ ...filters, finishedOnly: true })}>완결작만</button>
+        <div><h4>{statusTitle}</h4><div className="stack">
+          <button className={`chip ${!filters.finishedOnly && !filters.ongoingOnly ? "on" : ""}`} disabled={filmOnly} onClick={() => setFilters({ ...filters, finishedOnly: false, ongoingOnly: false })}><span aria-hidden="true">◎ </span>전체</button>
+          <button className={`chip ${filters.ongoingOnly ? "on" : ""}`} disabled={filmOnly} aria-pressed={filters.ongoingOnly} onClick={() => setFilters({ ...filters, finishedOnly: false, ongoingOnly: true })}><span aria-hidden="true">● </span>{ongoingLabel}</button>
+          <button className={`chip ${filters.finishedOnly ? "on" : ""}`} disabled={filmOnly} aria-pressed={filters.finishedOnly} onClick={() => setFilters({ ...filters, finishedOnly: true, ongoingOnly: false })}><span aria-hidden="true">✓ </span>{finishedLabel}</button>
+          {(filmOnly || hasFilm) && <p className="hint">{filmOnly ? "영화는 연재·완결 개념이 없어 선택할 수 없어요." : "영화에는 적용되지 않고, 책·웹툰·시리즈에만 적용돼요."}</p>}
         </div></div>
         <div><h4>제작·출간 시기</h4><div className="stack">
           {opt("era", "all", "모든 시기")}{opt("era", "recent5", "최근 5년 이내")}{opt("era", "since2010", "2010년대 이후")}{opt("era", "classic", "2010년 이전 고전·명작")}
@@ -436,13 +447,17 @@ function FilterPanel({ filters, setFilters }: { filters: Filters; setFilters: (f
       </div>
       <div className="divider" />
       <div className="grid3">
-        {groups.map((g) => (
-          <div key={g}><h4>{GROUP_LABEL[g]}</h4><div className="stack">
-            {PLATFORMS.filter((p) => p.group === g).map((p) => (
-              <button key={p.id} className={`chip ${filters.platforms.includes(p.id) ? "on" : ""}`} aria-pressed={filters.platforms.includes(p.id)} onClick={() => togglePlatform(p.id)}>{p.name}</button>
-            ))}
+        {groups.map((g) => {
+          const list = PLATFORMS.filter((p) => p.group === g);
+          return (
+          <div key={g} className={list.some((p) => platformAllowed(p, filters.media)) ? "" : "dim"}><h4>{GROUP_LABEL[g]}</h4><div className="stack">
+            {list.map((p) => {
+              const ok = platformAllowed(p, filters.media);
+              return <button key={p.id} className={`chip ${filters.platforms.includes(p.id) ? "on" : ""}`} disabled={!ok} title={ok ? undefined : "선택한 매체에서는 서비스하지 않는 플랫폼이에요"} aria-pressed={filters.platforms.includes(p.id)} onClick={() => togglePlatform(p.id)}>{p.name}</button>;
+            })}
           </div></div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

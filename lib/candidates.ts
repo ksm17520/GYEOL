@@ -180,7 +180,7 @@ export function trimSides<T extends { recommendedPlatforms: string[] }>(items: T
  * 어느 한 플랫폼에 치우치지 않게 플랫폼별로 고르게 섞고, 완결작만 보기도 세 플랫폼 모두에서 완결을 확인해 모읍니다.
  * wantedPlatforms가 있으면 그 플랫폼에 올라 있는 작품만 남깁니다.
  */
-export async function gatherWebtoonCandidates(keywords: string[], opts: { finishedOnly?: boolean; wantedPlatforms?: string[] } = {}): Promise<WebtoonCandidate[]> {
+export async function gatherWebtoonCandidates(keywords: string[], opts: { finishedOnly?: boolean; ongoingOnly?: boolean; wantedPlatforms?: string[] } = {}): Promise<WebtoonCandidate[]> {
   if (!EXTENDED_SOURCES) return [];
   const kws = Array.from(new Set(keywords.map((k) => k.trim()).filter(Boolean))).slice(0, 4);
   if (kws.length === 0) return [];
@@ -196,6 +196,13 @@ export async function gatherWebtoonCandidates(keywords: string[], opts: { finish
     pool = balance(pool, 60); // 네이버·카카오가 번갈아 앞서도록 한 뒤 상세를 채웁니다
     await fillDetails(pool, 36, true);
     pool = pool.filter((c) => c.finished === true);
+    return balance(pool, 40).map((c, i) => ({ ...c, id: `c${i + 1}` }));
+  }
+  if (opts.ongoingOnly) {
+    // 연재 중만: 완결 여부를 확인해 완결로 확인된 작품은 뺍니다(모르는 작품은 남김). 네이버·카카오가 번갈아 앞서도록 합니다.
+    pool = balance(pool, 60);
+    await fillDetails(pool, 36, true);
+    pool = pool.filter((c) => c.finished !== true);
     return balance(pool, 40).map((c, i) => ({ ...c, id: `c${i + 1}` }));
   }
   // 분위기 정보는 고른 후보 중 카카오웹툰 쪽 일부에만 채웁니다(응답 시간 때문에).

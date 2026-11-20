@@ -4,6 +4,8 @@ export type Filters = {
   media: Media[]; // 빈 배열 = 전체 매체
   length: "all" | "light" | "mid" | "long";
   finishedOnly: boolean;
+  /** 연재·방영 중인 작품만 (finishedOnly와 함께 켜지지 않음) */
+  ongoingOnly: boolean;
   era: "all" | "recent5" | "since2010" | "classic";
   platforms: string[]; // 우선 추천할 구독 플랫폼
 };
@@ -12,6 +14,7 @@ export const DEFAULT_FILTERS: Filters = {
   media: [],
   length: "all",
   finishedOnly: false,
+  ongoingOnly: false,
   era: "all",
   platforms: [],
 };
@@ -19,7 +22,7 @@ export const DEFAULT_FILTERS: Filters = {
 export function activeFilterCount(f: Filters): number {
   return (
     (f.length !== "all" ? 1 : 0) +
-    (f.finishedOnly ? 1 : 0) +
+    (f.finishedOnly || f.ongoingOnly ? 1 : 0) +
     (f.era !== "all" ? 1 : 0) +
     f.platforms.length
   );
@@ -31,6 +34,7 @@ function passesFilters(w: Work, f: Filters): boolean {
   if (f.media.length > 0 && !f.media.includes(w.media)) return false;
   if (f.length !== "all" && w.lengthClass !== f.length) return false;
   if (f.finishedOnly && !w.finished) return false;
+  if (f.ongoingOnly && w.finished) return false;
   if (f.era === "recent5" && w.year < THIS_YEAR - 5) return false;
   if (f.era === "since2010" && w.year < 2010) return false;
   if (f.era === "classic" && w.year >= 2010) return false;

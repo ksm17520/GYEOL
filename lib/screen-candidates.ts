@@ -152,7 +152,7 @@ function balanceByOtt(list: Omit<ScreenCandidate, "id">[], ottOrder: string[], l
 export async function gatherScreenCandidates(
   media: ScreenKind[],
   context: string,
-  opts: { era?: string; wantedOtts?: string[] } = {},
+  opts: { era?: string; wantedOtts?: string[]; /** 시리즈만: 방영 중(ongoing)·종영(finished) */ status?: "ongoing" | "finished" } = {},
 ): Promise<ScreenCandidate[]> {
   if (!key() || media.length === 0) return [];
   const genres = pickGenres(context);
@@ -166,9 +166,11 @@ export async function gatherScreenCandidates(
       const gids = Array.from(new Set(genres.map((g) => gmap[g]).filter((x): x is number => typeof x === "number")));
       const ids = await providerIds(kind);
       const ottNames = OTT_MAP.map((o) => o.name).filter((n) => ids.has(n) && (wanted.length === 0 || wanted.includes(n)));
+      // 시리즈의 방영 상태: TMDB with_status 0=방영 중(Returning Series), 3=종영(Ended)
+      const statusParam = kind === "drama" && opts.status ? `&with_status=${opts.status === "ongoing" ? 0 : 3}` : "";
       const perOtt = await Promise.all(ottNames.map(async (n) => {
         try {
-          const rows = await discover(kind, gids, era, `&with_watch_providers=${(ids.get(n) as number[]).join("|")}&with_watch_monetization_types=flatrate`);
+          const rows = await discover(kind, gids, era, `&with_watch_providers=${(ids.get(n) as number[]).join("|")}&with_watch_monetization_types=flatrate${statusParam}`);
           return rows.slice(0, 12).map((r) => ({ c: toCand(r, kind, [n], "available") }));
         } catch { return []; }
       }));
@@ -176,9 +178,9 @@ export async function gatherScreenCandidates(
       const balanced = balanceByOtt(merged, ottNames, 18);
       // 서비스 중단 후보: 장르에 맞는 평점 높은 작품 중 한국에서 볼 방법이 전혀 없는 것 (뒤로 미루고 최대 2편)
       let gone: Omit<ScreenCandidate, "id">[] = [];
-      if (wanted.length === 0) {
+      if (wanted.length === 0 && !(kind === "drama" && opts.status === "ongoing")) {
         try {
-          const rows = (await discover(kind, gids, era, "&sort_by=vote_average.desc&vote_count.gte=800")).slice(0, 14);
+          const rows = (await discover(kind, gids, era, `&sort_by=vote_average.desc&vote_count.gte=800${statusParam}`)).slice(0, 14);
           const known = new Set(balanced.map((b) => b.tmdbId));
           const checks = await Promise.all(rows.filter((r) => !known.has(r.id)).map(async (r) => ({ r, p: await koreaProviders(kind, r.id) })));
           gone = checks.filter((x) => x.p && !x.p.any).slice(0, 3).map((x) => toCand(x.r, kind, [], "discontinued"));
