@@ -22,6 +22,10 @@ export const PLATFORMS: Platform[] = [
   { id: "aladin", name: "알라딘", aliases: ["알라딘", "aladin"], group: "bookstore", media: ["book"], category: "도서·중고·eBook", search: (q) => `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchTarget=All&SearchWord=${e(q)}` },
   { id: "millie", name: "밀리의 서재", aliases: ["밀리의 서재", "밀리의서재", "밀리", "millie"], group: "bookstore", media: ["book"], category: "구독 전자책", search: (q) => `https://www.millie.co.kr/v3/search?keyword=${e(q)}` },
   { id: "ridi", name: "리디", aliases: ["리디", "리디북스", "ridi"], group: "bookstore", media: ["book", "webtoon"], category: "전자책·웹툰", search: (q) => `https://ridibooks.com/search?q=${e(q)}` },
+  { id: "naverseries", name: "네이버 시리즈", aliases: ["네이버 시리즈", "네이버시리즈", "시리즈"], group: "bookstore", media: ["book", "webtoon"], category: "전자책·웹소설·웹툰", search: (q) => `https://series.naver.com/search/search.series?t=all&q=${e(q)}` },
+  { id: "googlebooks", name: "구글 Play 북스", aliases: ["구글 play 북스", "구글 플레이 북스", "google play books", "구글북스"], group: "bookstore", media: ["book"], category: "전자책·오디오북", search: (q) => `https://play.google.com/store/search?q=${e(q)}&c=books` },
+  { id: "storytel", name: "스토리텔", aliases: ["스토리텔", "storytel"], group: "bookstore", media: ["book"], category: "구독 오디오북·전자책", search: (q) => `https://www.storytel.com/kr/ko/search?query=${e(q)}` },
+  { id: "websearch", name: "웹에서 열람처 찾기", aliases: ["웹 검색", "구글 검색", "그 외"], group: "bookstore", media: ["book"], category: "그 외 열람 가능한 모든 사이트", search: (q) => `https://www.google.com/search?q=${e(`${q} 전자책 읽기`)}` },
   { id: "netflix", name: "넷플릭스", aliases: ["넷플릭스", "netflix"], group: "ott", media: ["film", "drama"], category: "OTT 스트리밍", search: (q) => `https://www.netflix.com/search?q=${e(q)}` },
   { id: "watcha", name: "왓챠", aliases: ["왓챠", "watcha"], group: "ott", media: ["film", "drama"], category: "OTT 스트리밍", search: (q) => `https://watcha.com/search?query=${e(q)}` },
   { id: "tving", name: "티빙", aliases: ["티빙", "tving"], group: "ott", media: ["film", "drama"], category: "OTT 스트리밍", search: (q) => `https://www.tving.com/search/main?keyword=${e(q)}` },
@@ -38,7 +42,7 @@ export const PLATFORMS: Platform[] = [
 export const PLATFORM_BY_ID: Record<string, Platform> = Object.fromEntries(PLATFORMS.map((p) => [p.id, p]));
 
 export const GROUP_LABEL: Record<PlatformGroup, string> = {
-  bookstore: "서점 · 전자책",
+  bookstore: "서점 · 전자책 · 열람처",
   ott: "OTT · 유튜브",
   webtoon: "웹툰 플랫폼",
 };

@@ -237,7 +237,7 @@ export default function Home() {
               <button className="btn accent" onClick={() => goPanel(mode)}>큐레이션 시작하기 ↘</button>
             </div>
             <div className="support">
-              <div><b>연동 서점</b> · 예스24 · 교보문고 · 알라딘</div>
+              <div><b>도서 열람처</b> · 예스24 · 교보문고 · 알라딘 · 밀리의 서재 · 리디 · 그 외 열람 가능한 모든 사이트</div>
               <div><b>OTT</b> · 넷플릭스 · 티빙 · 왓챠 · 웨이브 · 유튜브</div>
               <div><b>웹툰</b> · 네이버웹툰 · 카카오페이지</div>
             </div>
@@ -308,7 +308,7 @@ export default function Home() {
                   <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="예: 뻔한 로맨스보다는 인물 간 대화가 밀도 높고, 가을 밤 공기와 어울리는 완결작을 찾고 있어요." />
                 </div>
                 <div className="cta-row">
-                  <p>추천 결과는 서점(예스24·교보문고·알라딘), OTT(넷플릭스·티빙·왓챠 등), 웹툰 플랫폼과 바로 연결됩니다.</p>
+                  <p>추천 결과는 서점·전자책 사이트(예스24·교보문고·알라딘·밀리의 서재·리디 등 열람 가능한 모든 곳), OTT(넷플릭스·티빙·왓챠 등), 웹툰 플랫폼과 바로 연결됩니다.</p>
                   <button className="cta" disabled={!canMood || loading} onClick={submitMood}>{loading ? "추천을 고르는 중…" : "맞춤 작품 추천받기 →"}</button>
                 </div>
               </>

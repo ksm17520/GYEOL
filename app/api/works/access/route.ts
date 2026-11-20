@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const SCOPE = {
-  book: "예스24, 교보문고, 알라딘, 밀리의 서재, 리디",
+  book: "예스24, 교보문고, 알라딘, 밀리의 서재, 리디, 네이버 시리즈, 구글 Play 북스, 스토리텔",
   webtoon: "네이버웹툰, 카카오페이지, 레진코믹스, 카카오웹툰",
   film: "넷플릭스, 왓챠, 티빙, 웨이브, Apple TV+, 쿠팡플레이, 유튜브",
   drama: "넷플릭스, 왓챠, 티빙, 웨이브, Apple TV+, 쿠팡플레이, 유튜브",
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   if (!title || !media) return NextResponse.json({ error: "작품 제목과 매체가 필요합니다.", code: "BAD" }, { status: 400 });
 
   const prompt = `한국에서 ${MEDIA_LABEL[media]} "${title}"${creator ? ` (${creator})` : ""} 작품을 현재 어디서 열람, 구매 또는 스트리밍 시청할 수 있는지 검색해 간결하게 정리해 주세요.
-확인 대상 주요 플랫폼: ${SCOPE[media]}.
+확인 대상 주요 플랫폼: ${SCOPE[media]}. 이 목록에 없더라도 해당 작품을 열람·시청할 수 있는 한국의 다른 사이트나 서비스가 확인되면 함께 알려 주세요.
 2~3문장으로 현재 확인되는 한국 플랫폼·서점 이용 가능 여부와 특징(구독 포함 여부, 단행본/전자책 출간 여부, 완결 회차 등)만 깔끔한 한국어로 답변해 주세요. 확인되지 않은 내용은 추측하지 말고 '확인되지 않았다'고 적어 주세요.`;
   try {
     const { text, sources } = await generateGrounded(prompt);
