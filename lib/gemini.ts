@@ -13,30 +13,50 @@ type GeminiResponse = {
   }[];
 };
 
-async function post(body: unknown, timeoutMs: number): Promise<GeminiResponse> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new AiError(503, "AI 추천이 아직 설정되지 않았습니다.", "NO_KEY");
-  let lastStatus = 500;
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite";
+
+async function callModel(model: string, body: unknown, timeoutMs: number): Promise<{ ok: true; data: GeminiResponse } | { ok: false; status: number; detail: string }> {
+  const key = process.env.GEMINI_API_KEY as string;
+  let status = 500;
+  let detail = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODEL)}:generateContent`, {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (res.ok) return (await res.json()) as GeminiResponse;
-      lastStatus = res.status;
-      if (![429, 500, 503].includes(res.status)) break;
+      if (res.ok) return { ok: true, data: (await res.json()) as GeminiResponse };
+      status = res.status;
+      detail = (await res.text().catch(() => "")).slice(0, 300);
+      console.error(`[gemini] ${model} -> ${status} ${detail}`);
+      if (![429, 500, 503].includes(status)) break;
     } catch (e) {
       if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw new AiError(504, "AI 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
-      lastStatus = 503;
+      status = 503;
+      detail = e instanceof Error ? e.message : "network";
+      console.error(`[gemini] ${model} network error: ${detail}`);
     }
     if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
   }
-  if ([400, 401, 403].includes(lastStatus)) throw new AiError(502, "AI 설정(API 키·모델)을 확인해 주세요.");
-  if (lastStatus === 429) throw new AiError(429, "요청 한도에 도달했어요. 잠시 후 다시 시도해 주세요.");
-  throw new AiError(503, "AI 서버가 일시적으로 혼잡해요. 잠시 후 다시 시도해 주세요.");
+  return { ok: false, status, detail };
+}
+
+async function post(body: unknown, timeoutMs: number): Promise<GeminiResponse> {
+  if (!process.env.GEMINI_API_KEY) throw new AiError(503, "AI 추천이 아직 설정되지 않았습니다.", "NO_KEY");
+  let r = await callModel(MODEL, body, timeoutMs);
+  // 기본 모델이 없거나(404) 과부하(429·500·503)일 때 보조 모델로 한 번 더 시도합니다.
+  if (!r.ok && [404, 429, 500, 503].includes(r.status) && FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) {
+    const second = await callModel(FALLBACK_MODEL, body, timeoutMs);
+    if (second.ok) return second.data;
+    r = r.status === 404 ? second : r;
+  }
+  if (r.ok) return r.data;
+  if ([400, 401, 403].includes(r.status)) throw new AiError(502, `AI 설정(API 키·모델)을 확인해 주세요. (${r.status})`);
+  if (r.status === 404) throw new AiError(502, `AI 모델을 찾을 수 없어요. GEMINI_MODEL 설정을 확인해 주세요. (404)`);
+  if (r.status === 429) throw new AiError(429, "요청 한도에 도달했어요. 잠시 후 다시 시도해 주세요. (429)");
+  throw new AiError(503, `AI 서버가 일시적으로 혼잡해요. 잠시 후 다시 시도해 주세요. (${r.status})`);
 }
 
 const textOf = (r: GeminiResponse) => r.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
