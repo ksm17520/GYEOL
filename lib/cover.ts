@@ -40,7 +40,7 @@ function close(a: string, b: string): boolean {
   return x === y || (y.length >= 2 && (x.includes(y) || y.includes(x)));
 }
 
-async function getJson(url: string, init: RequestInit = {}, ms = 2800): Promise<unknown> {
+export async function getJson(url: string, init: RequestInit = {}, ms = 2800): Promise<unknown> {
   const res = await fetch(url, { ...init, headers: { "User-Agent": "GyeolArchive/1.0", ...(init.headers ?? {}) }, signal: AbortSignal.timeout(ms) });
   if (!res.ok) throw new Error(String(res.status));
   return res.json();
@@ -96,8 +96,8 @@ async function imdb(t: CoverTarget, kind: "film" | "drama"): Promise<string | nu
   return null;
 }
 
-type NaverComic = { titleName?: string; thumbnailUrl?: string };
-async function naverWebtoonSearch(keyword: string): Promise<NaverComic[]> {
+export type NaverComic = { titleName?: string; thumbnailUrl?: string; titleId?: number | string; finished?: boolean };
+export async function naverWebtoonSearch(keyword: string): Promise<NaverComic[]> {
   try {
     const d = (await getJson(`https://comic.naver.com/api/search/all?keyword=${encodeURIComponent(keyword)}`)) as {
       searchWebtoonResult?: { searchViewList?: NaverComic[] };
@@ -113,7 +113,7 @@ async function naverWebtoon(title: string): Promise<string | null> {
 }
 
 /** 거의 같은 제목인지 확인합니다. 한쪽이 다른 쪽에 포함되어도 길이가 70% 이상 같아야 인정합니다. */
-function sameTitle(a: string, b: string): boolean {
+export function sameTitle(a: string, b: string): boolean {
   const x = norm(a), y = norm(b);
   if (!x || !y) return false;
   if (x === y) return true;
@@ -121,7 +121,7 @@ function sameTitle(a: string, b: string): boolean {
   return short.length >= 3 && long.includes(short) && short.length / long.length >= 0.7;
 }
 
-const toProxy = (raw: string | undefined): string | null => {
+export const toProxy = (raw: string | undefined): string | null => {
   if (!raw) return null;
   try {
     const u = new URL(raw);
@@ -129,7 +129,7 @@ const toProxy = (raw: string | undefined): string | null => {
   } catch { return null; }
 };
 
-const KAKAO_HEADERS = { "Accept-Language": "ko", Accept: "application/json" };
+export const KAKAO_HEADERS = { "Accept-Language": "ko", Accept: "application/json" };
 
 /** 카카오페이지에서 웹툰으로 올라 있는 작품 제목들 (비공식 검색 주소). */
 async function kakaoPageWebtoonTitles(keyword: string): Promise<string[]> {

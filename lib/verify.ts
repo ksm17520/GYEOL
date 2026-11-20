@@ -2,6 +2,12 @@ import { findWebtoonOfficial, resolveCoverUrl } from "./cover";
 import { itemKey, type RecItem } from "./item";
 
 async function check(item: RecItem): Promise<RecItem> {
+  // 후보 목록(플랫폼 검색)에서 고른 웹툰은 이미 확인됐으므로 표지만 채웁니다.
+  if (item.media === "webtoon" && item.verified) {
+    if (item.coverImageUrl) return item;
+    const cover = await resolveCoverUrl({ title: item.title, originalTitle: item.originalTitle, englishTitle: item.englishTitle, creator: item.creator, media: item.media, releaseYear: item.releaseYear });
+    return cover ? { ...item, coverImageUrl: cover } : item;
+  }
   // 웹툰: 네이버웹툰에 올라 있는 공식 제목과 거의 같으면 제목을 공식 표기로 바로잡고 표지를 채웁니다.
   if (item.media === "webtoon") {
     const official = await findWebtoonOfficial(item.title);

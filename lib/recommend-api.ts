@@ -1,5 +1,7 @@
 import { MEDIA_LABEL, type Media } from "./data";
 import { sanitizeItem, normalizeMedia, itemKey, type RecItem } from "./item";
+import { FALLBACK_KEYWORDS, WEBTOON_KEYWORDS, gatherWebtoonCandidates, type WebtoonCandidate } from "./candidates";
+import { generateJson } from "./gemini";
 
 const ALL_MEDIA: Media[] = ["book", "film", "drama", "webtoon"];
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
@@ -74,7 +76,7 @@ const RULES = `[작품 제목 규칙 — 가장 중요]
 const mediaText = (m: Media[]) => m.map((x) => MEDIA_LABEL[x]).join(", ");
 const filterText = (f: ReqFilters) => `- 분량/호흡: ${LENGTH[f.length]}\n- 완결 여부: ${f.finishedOnly ? "반드시 완결된 작품 위주" : "완결 및 연재·방영 중 모두 포함"}\n- 시대: ${ERA[f.era]}\n- 이용 중인 플랫폼 우선 고려: ${f.platforms.length ? f.platforms.join(", ") : "전체 플랫폼"}`;
 
-export function moodPrompt(r: MoodRequest): string {
+export function moodPrompt(r: MoodRequest, cands: WebtoonCandidate[] = []): string {
   return `당신은 한국 문화 콘텐츠(책, 영화, 드라마, 웹툰)에 정통한 에디토리얼 큐레이터입니다.
 실제로 존재하는 한국어 작품(또는 한국에 정식 번역·개봉·방영·출간된 해외 작품)만 정확하게 6편 추천해 주세요. 존재하지 않는 제목이나 작가를 절대 지어내지 마세요.
 
@@ -90,10 +92,10 @@ export function moodPrompt(r: MoodRequest): string {
 [세부 필터]
 ${filterText(r.filters)}
 
-${RULES}`;
+${candidateBlock(cands)}${RULES}`;
 }
 
-export function crossoverPrompt(r: CrossoverRequest): string {
+export function crossoverPrompt(r: CrossoverRequest, cands: WebtoonCandidate[] = []): string {
   return `당신은 매체의 경계를 넘나드는 문화 비평가이자 큐레이터입니다.
 사용자가 입력한 '인생작'의 서사 구조, 감정적 결, 미학적 분위기, 주제 의식을 분석한 뒤, 그 결을 공유하는 다른 작품 6편을 추천해 주세요.
 실제로 존재하는 작품(한국 작품 또는 한국어 번역/개봉/방영작)만 추천하고 가상의 제목을 만들지 마세요.
@@ -110,7 +112,54 @@ ${filterText(r.filters)}
 
 각 작품의 crossoverBridge에 "인생작의 어떤 정서/서사와 연결되는지"를 구체적으로 설명하세요.
 
-${RULES}`;
+${candidateBlock(cands)}${RULES}`;
+}
+
+/** 웹툰 후보 목록을 프롬프트에 넣을 글로 만듭니다. 목록이 비어 있으면 빈 문자열(기존 방식). */
+export function candidateBlock(c: WebtoonCandidate[]): string {
+  if (c.length === 0) return "";
+  const lines = c.map((x) => `${x.id} | ${x.title} | ${x.genre || "장르 미상"} | ${x.creator || "작가 미상"} | ${x.platforms.join("·")}`).join("\n");
+  return `[웹툰 후보 목록 — 지금 플랫폼에서 실제로 열람할 수 있는 작품]
+웹툰(webtoon)을 추천할 때는 반드시 아래 목록에서만 고르고, 고른 작품의 id를 candidateId에 그대로 적으세요. 목록에 없는 웹툰은 절대 추천하지 마세요. 특정 플랫폼의 작품만 몰아서 고르지 말고, 목록에 있는 여러 플랫폼의 작품을 고르게 섞으세요. title은 목록의 제목을 그대로 적으세요. 장르·작가 외의 줄거리는 아는 만큼만 쓰고, 확실하지 않으면 일반적인 분위기 설명으로 대신하세요.
+id | 제목 | 장르 | 작가 | 열람 플랫폼
+${lines}
+
+`;
+}
+
+/** 웹툰 후보를 찾는 데 쓸 장르·분위기 낱말을 AI가 고릅니다(제목이 아님). 실패하면 기본 낱말을 씁니다. */
+export async function pickWebtoonKeywords(context: string): Promise<string[]> {
+  try {
+    const raw = (await generateJson(
+      `웹툰을 검색할 장르·분위기 낱말을 아래 허용 목록에서 3개 골라 주세요. 작품 제목은 쓰지 마세요.\n허용 목록: ${WEBTOON_KEYWORDS.join(", ")}\n\n[사용자 요청]\n${context}`,
+      { type: "OBJECT", properties: { keywords: { type: "ARRAY", items: { type: "STRING" } } }, required: ["keywords"] },
+      12000,
+    )) as { keywords?: unknown };
+    const k = strs(raw.keywords, 4, 20).filter((x) => WEBTOON_KEYWORDS.includes(x));
+    return k.length ? k : FALLBACK_KEYWORDS;
+  } catch { return FALLBACK_KEYWORDS; }
+}
+
+/** 웹툰이 요청 매체에 있으면 실제 후보 목록을 모읍니다. 못 모으면 빈 목록(기존 방식으로 대체). */
+export async function webtoonPool(media: Media[], filters: ReqFilters, context: string): Promise<WebtoonCandidate[]> {
+  if (!media.includes("webtoon")) return [];
+  const keywords = await pickWebtoonKeywords(context);
+  return gatherWebtoonCandidates(keywords, { finishedOnly: filters.finishedOnly, wantedPlatforms: filters.platforms });
+}
+
+/**
+ * 웹툰 추천을 후보 목록으로 맞춥니다. candidateId가 목록에 있으면 제목·작가·감상처·표지를 플랫폼 표기로 바꾸고 확인됨으로 표시하고,
+ * 목록에 없는 웹툰은 제외합니다. 후보 목록이 비어 있으면(수집 실패) 손대지 않습니다.
+ */
+export function applyCandidates(items: unknown, cands: WebtoonCandidate[]): unknown {
+  if (cands.length === 0 || !Array.isArray(items)) return items;
+  const by = new Map(cands.map((c) => [c.id, c]));
+  return items.flatMap((x) => {
+    if (!isObj(x) || normalizeMedia(x.mediaType ?? x.media) !== "webtoon") return [x];
+    const c = by.get(clip(x.candidateId, 10));
+    if (!c) return [];
+    return [{ ...x, title: c.title, creator: c.creator || clip(x.creator, 100), recommendedPlatforms: c.platforms, coverImageUrl: c.coverImageUrl ?? undefined, verified: true }];
+  });
 }
 
 const S = { type: "STRING" };
@@ -119,6 +168,7 @@ export const ITEM_SCHEMA = {
   type: "OBJECT",
   properties: {
     id: { ...S, description: "작품 고유 짧은 슬러그" },
+    candidateId: { ...S, description: "웹툰만: 후보 목록의 id(c1 등). 웹툰이 아니면 빈 문자열" },
     title: { ...S, description: "서점·OTT·웹툰 플랫폼에 올라 있는 공식 제목 그대로(번역·축약·조합 금지)" },
     originalTitle: { ...S, description: "원제(해외 작품인 경우)" },
     englishTitle: { ...S, description: "공식 영문 제목 (표지 조회용)" },
