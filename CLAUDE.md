@@ -23,7 +23,7 @@ Claude Code가 매번 가장 먼저 읽는 작업 규칙입니다. 문서 우선
 | 이름 | 설명 |
 |---|---|
 | `GEMINI_API_KEY` | AI 추천 (없으면 샘플 데이터 기반 추천으로 대체) |
-| `GEMINI_MODEL` | 기본 `gemini-3.6-flash` |
+| `GEMINI_MODEL` | 기본 `gemini-3.5-flash-lite`(무료 등급 분당 15회·하루 500회. flash 계열은 분당 5회·하루 20회라 금방 429) |
 | `CLOVASTUDIO_API_KEY` | (선택) 네이버 CLOVA Studio(HyperCLOVA X). 있으면 Gemini 실패 시 이어서 사용 (`AI_PROVIDERS`로 순서 조정) |
 | `TMDB_API_KEY` | 영화·드라마 포스터 (선택) |
 | `COVER_EXTENDED_SOURCES` | 예스24·알라딘·IMDb·네이버 비공식 출처. **유료 결제를 열기 전에 `off`** |

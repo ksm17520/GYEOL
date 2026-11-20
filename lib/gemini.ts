@@ -1,6 +1,6 @@
 import { clovaConfigured, clovaJson, ClovaError } from "./clova";
 
-export const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+export const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
 export class AiError extends Error {
   constructor(public status: number, message: string, public code: "NO_KEY" | "FAILED" = "FAILED") {
@@ -15,7 +15,7 @@ type GeminiResponse = {
   }[];
 };
 
-const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
 
 /** Gemini 3 계열은 기본 생각(thinking) 시간이 길어 응답이 늦어지므로 낮춰서 요청합니다. */
 function withModelTuning(model: string, body: unknown): unknown {
@@ -40,9 +40,12 @@ async function callModel(model: string, body: unknown, timeoutMs: number): Promi
       status = res.status;
       detail = (await res.text().catch(() => "")).slice(0, 300);
       console.error(`[gemini] ${model} -> ${status} ${detail}`);
-      if (![429, 500, 503].includes(status)) break;
+      if (![500, 503].includes(status)) break; // 429(한도)는 같은 모델로 다시 보내도 소용없고 한도만 더 씁니다
     } catch (e) {
-      if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw new AiError(504, "AI 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
+      if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) {
+        console.error(`[gemini] ${model} timeout ${timeoutMs}ms`);
+        return { ok: false, status: 504, detail: "timeout" };
+      }
       status = 503;
       detail = e instanceof Error ? e.message : "network";
       console.error(`[gemini] ${model} network error: ${detail}`);
@@ -56,14 +59,15 @@ async function post(body: unknown, timeoutMs: number): Promise<GeminiResponse> {
   if (!process.env.GEMINI_API_KEY) throw new AiError(503, "AI 추천이 아직 설정되지 않았습니다.", "NO_KEY");
   let r = await callModel(MODEL, body, timeoutMs);
   // 기본 모델이 없거나(404) 과부하(429·500·503)일 때 보조 모델로 한 번 더 시도합니다.
-  if (!r.ok && [404, 429, 500, 503].includes(r.status) && FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) {
-    const second = await callModel(FALLBACK_MODEL, body, timeoutMs);
+  if (!r.ok && [404, 429, 500, 503, 504].includes(r.status) && FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) {
+    const second = await callModel(FALLBACK_MODEL, body, Math.min(timeoutMs, 20000));
     if (second.ok) return second.data;
-    r = r.status === 404 ? second : r;
+    r = r.status === 404 || r.status === 504 ? second : r;
   }
   if (r.ok) return r.data;
   if ([400, 401, 403].includes(r.status)) throw new AiError(502, `AI 설정(API 키·모델)을 확인해 주세요. (${r.status})`);
   if (r.status === 404) throw new AiError(502, `AI 모델을 찾을 수 없어요. GEMINI_MODEL 설정을 확인해 주세요. (404)`);
+  if (r.status === 504) throw new AiError(504, "AI 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
   if (r.status === 429) throw new AiError(429, "AI 사용 한도에 도달했어요. 1분쯤 뒤에 다시 시도해 주세요. (429)");
   throw new AiError(503, `AI 서버가 일시적으로 혼잡해요. 잠시 후 다시 시도해 주세요. (${r.status})`);
 }
