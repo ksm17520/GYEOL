@@ -62,7 +62,7 @@ async function post(body: unknown, timeoutMs: number): Promise<GeminiResponse> {
   if (r.ok) return r.data;
   if ([400, 401, 403].includes(r.status)) throw new AiError(502, `AI 설정(API 키·모델)을 확인해 주세요. (${r.status})`);
   if (r.status === 404) throw new AiError(502, `AI 모델을 찾을 수 없어요. GEMINI_MODEL 설정을 확인해 주세요. (404)`);
-  if (r.status === 429) throw new AiError(429, "요청 한도에 도달했어요. 잠시 후 다시 시도해 주세요. (429)");
+  if (r.status === 429) throw new AiError(429, "AI 사용 한도에 도달했어요. 1분쯤 뒤에 다시 시도해 주세요. (429)");
   throw new AiError(503, `AI 서버가 일시적으로 혼잡해요. 잠시 후 다시 시도해 주세요. (${r.status})`);
 }
 

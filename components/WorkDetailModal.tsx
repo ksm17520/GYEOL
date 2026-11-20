@@ -8,6 +8,10 @@ import { itemKey, type RecItem } from "@/lib/item";
 import { buildPlatformLinks, trailerUrl } from "@/lib/platforms";
 import { Cover } from "./Cover";
 
+// 이미 확인한 작품은 다시 호출하지 않도록 브라우저 메모리에 보관, 한도 오류 뒤에는 잠시 재시도를 막습니다.
+const accessCache = new Map<string, VerifiedAccess>();
+let cooldownUntil = 0;
+
 export function WorkDetailModal({ item, onClose, onCross, onTrack }: {
   item: RecItem; onClose: () => void; onCross: (item: RecItem) => void; onTrack: (item: RecItem, platformName: string) => void;
 }) {
@@ -15,7 +19,7 @@ export function WorkDetailModal({ item, onClose, onCross, onTrack }: {
   const bookmark = a.getBookmark(item);
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [verified, setVerified] = useState<VerifiedAccess | null>(bookmark?.verifiedAccess ?? null);
+  const [verified, setVerified] = useState<VerifiedAccess | null>(bookmark?.verifiedAccess ?? accessCache.get(itemKey(item)) ?? null);
   const [memo, setMemo] = useState(bookmark?.memo ?? "");
   const dialog = useRef<HTMLDivElement>(null);
   const closeBtn = useRef<HTMLButtonElement>(null);
@@ -48,14 +52,18 @@ export function WorkDetailModal({ item, onClose, onCross, onTrack }: {
   const screen = item.media === "film" || item.media === "drama";
 
   async function verify() {
+    const wait = Math.ceil((cooldownUntil - Date.now()) / 1000);
+    if (wait > 0) { setVerifyError(`AI 사용 한도 때문에 ${wait}초 뒤에 다시 확인할 수 있어요. 위 플랫폼 버튼으로는 바로 열람할 수 있어요.`); return; }
     setVerifying(true); setVerifyError(null);
     try {
       const res = await fetch("/api/works/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: item.title, creator: item.creator, media: item.media }) });
       const data: unknown = await res.json();
+      if (res.status === 429) cooldownUntil = Date.now() + 60_000;
       if (!res.ok) throw new Error((data as { error?: string })?.error || "감상처 확인 중 오류가 발생했습니다.");
       const access = sanitizeAccess(data);
       if (!access) throw new Error("확인 결과를 읽지 못했어요.");
       setVerified(access);
+      accessCache.set(itemKey(item), access);
       if (bookmark) a.saveVerifiedAccess(itemKey(item), access);
     } catch (e) {
       setVerifyError(e instanceof Error ? e.message : "감상처 확인에 실패했습니다.");
