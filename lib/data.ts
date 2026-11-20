@@ -3,7 +3,7 @@ export type Media = "book" | "film" | "drama" | "webtoon";
 export const MEDIA_LABEL: Record<Media, string> = {
   book: "책",
   film: "영화",
-  drama: "드라마",
+  drama: "시리즈",
   webtoon: "웹툰",
 };
 

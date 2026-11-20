@@ -27,7 +27,7 @@ type Ctx = ArchiveStore & {
   addHistory: (s: Omit<HistorySession, "id" | "createdAt">) => void;
   removeHistory: (id: string) => void;
   setTasteProfile: (p: TasteProfile | null) => void;
-  /** 보관함의 영화·드라마 감독·출연진·분량·상영/방영 상태를 TMDB 정보로 갱신합니다(12시간에 한 번). */
+  /** 보관함의 영화·시리즈 감독·출연진·분량·상영/방영 상태를 TMDB 정보로 갱신합니다(12시간에 한 번). */
   syncScreenInfo: () => Promise<void>;
   exportJson: () => string;
   importJson: (raw: string) => { ok: boolean; error?: string };

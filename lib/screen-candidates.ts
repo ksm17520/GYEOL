@@ -4,7 +4,7 @@ import { kmdbMovie } from "./kmdb";
 export type ScreenKind = "film" | "drama";
 export type Availability = "available" | "discontinued";
 
-/** TMDB에서 찾은 실존 영화·드라마. AI는 이 목록에서만 고릅니다. */
+/** TMDB에서 찾은 실존 영화·시리즈. AI는 이 목록에서만 고릅니다. */
 export type ScreenCandidate = {
   id: string; // "m1" 형식 (영화 m, 드라마 d). AI가 이 값으로 고릅니다.
   tmdbId: number;
@@ -18,6 +18,8 @@ export type ScreenCandidate = {
   /** 지금 한국에서 볼 수 있는 OTT 이름. 비어 있으면 서비스 중단으로 봅니다. */
   otts: string[];
   availability: Availability;
+  /** 영화: KMDb의 장르·관람등급·키워드·줄거리(추천 근거 보강). 없으면 빈 문자열 */
+  kmdb?: string;
 };
 
 const TMDB = "https://api.themoviedb.org/3";
@@ -56,9 +58,10 @@ const TV_GENRE: Record<string, number> = { 액션: 10759, 모험: 10759, 애니:
 
 /** 분위기·상황 낱말 → 장르 이름 (AI 호출 없이 규칙으로 고릅니다) */
 const GENRE_RULES: [RegExp, string[]][] = [
+  [/애니|만화|지브리|디즈니|픽사/, ["애니"]],
   [/서늘|치밀|심리|내면|미스터리|추리/, ["스릴러", "미스터리", "범죄"]],
-  [/따뜻|위로|잔잔|힐링|편안/, ["드라마", "가족", "로맨스"]],
-  [/세계관|스케일|판타지|모험/, ["판타지", "SF", "모험"]],
+  [/따뜻|위로|잔잔|힐링|편안/, ["드라마", "가족", "애니", "로맨스"]],
+  [/세계관|스케일|판타지|모험/, ["판타지", "SF", "애니", "모험"]],
   [/여운|시적|감성|쓸쓸|서정/, ["드라마", "로맨스"]],
   [/위트|경쾌|웃|코믹|가볍/, ["코미디"]],
   [/도파민|강렬|액션|전개|짜릿/, ["액션", "스릴러"]],
@@ -143,7 +146,7 @@ function balanceByOtt(list: Omit<ScreenCandidate, "id">[], ottOrder: string[], l
 }
 
 /**
- * 한국 OTT 제공 목록(TMDB·JustWatch 정보)에서 영화·드라마 후보를 OTT별로 같은 수만큼 모으고,
+ * 한국 OTT 제공 목록(TMDB·JustWatch 정보)에서 영화·시리즈 후보를 OTT별로 같은 수만큼 모으고,
  * 지금 어느 OTT에서도 볼 수 없는 인기작은 `서비스 중단` 후보로 소수 덧붙입니다. TMDB_API_KEY가 없거나 실패하면 빈 목록입니다.
  */
 export async function gatherScreenCandidates(
@@ -180,6 +183,17 @@ export async function gatherScreenCandidates(
           const checks = await Promise.all(rows.filter((r) => !known.has(r.id)).map(async (r) => ({ r, p: await koreaProviders(kind, r.id) })));
           gone = checks.filter((x) => x.p && !x.p.any).slice(0, 3).map((x) => toCand(x.r, kind, [], "discontinued"));
         } catch { /* 중단 후보는 없이 진행 */ }
+      }
+      // 국내 개봉 영화는 KMDb 정보를 덧붙여 AI가 고를 근거를 늘립니다(KMDB_API_KEY가 있을 때만, 실패하면 건너뜀).
+      if (kind === "film" && process.env.KMDB_API_KEY) {
+        const list = [...balanced, ...gone];
+        const queue = [...list];
+        await Promise.all(Array.from({ length: 6 }, async () => {
+          for (let c = queue.shift(); c; c = queue.shift()) {
+            const r = await kmdbMovie(c.title, c.year, c.originalTitle ? [c.originalTitle] : []);
+            if (r.movie?.brief) c.kmdb = r.movie.brief;
+          }
+        }));
       }
       for (const c of [...balanced, ...gone]) out.push({ ...c, id: `${kind === "film" ? "m" : "d"}${++seq}` });
     } catch { /* 이 매체는 후보 없이 → 기존 방식 */ }

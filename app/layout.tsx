@@ -5,7 +5,7 @@ import { ArchiveProvider } from "./providers";
 export const metadata: Metadata = {
   title: "GYEOL (결) — 취향·상황·분위기 큐레이션 아카이브",
   description:
-    "지금의 기분과 인생작의 결로 책·영화·드라마·웹툰을 연결하고, 서점·OTT·웹툰 플랫폼으로 바로 이어주는 큐레이션 서비스.",
+    "지금의 기분과 인생작의 결로 책·영화·시리즈·웹툰을 연결하고, 서점·OTT·웹툰 플랫폼으로 바로 이어주는 큐레이션 서비스.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

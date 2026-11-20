@@ -33,7 +33,7 @@ export type RecItem = {
   source: "ai" | "sample";
   /** 외부 출처(서점·TMDB 등)에서 실제 작품으로 확인되었는지. AI 추천에만 서버가 채웁니다. */
   verified?: boolean;
-  /** 영화·드라마: 지금 한국 OTT에서 볼 수 없으면 "discontinued"(서비스가 중단된 콘텐츠) */
+  /** 영화·시리즈: 지금 한국 OTT에서 볼 수 없으면 "discontinued"(서비스가 중단된 콘텐츠) */
   availability?: "available" | "discontinued";
 };
 
@@ -48,7 +48,7 @@ export function normalizeMedia(v: unknown): Media | null {
   const t = String(v ?? "").toLowerCase().trim();
   if (t === "book" || t === "책") return "book";
   if (t === "movie" || t === "film" || t === "영화") return "film";
-  if (t === "drama" || t === "series" || t === "드라마") return "drama";
+  if (t === "drama" || t === "series" || t === "드라마" || t === "시리즈") return "drama";
   if (t === "webtoon" || t === "웹툰") return "webtoon";
   return null;
 }
@@ -123,7 +123,7 @@ export const mediaLabel = (m: Media) => MEDIA_LABEL[m];
 
 /**
  * 카드·상세에 보여 줄 상태 글자. 영화는 상영중·재개봉·개봉연도, 드라마는 방영 중 또는 방영 시작 연도, 그 외는 완결 여부입니다.
- * 영화·드라마에는 "완결"을 쓰지 않고 연도로 바꿉니다(예전 저장본 포함).
+ * 영화·시리즈에는 "완결"을 쓰지 않고 연도로 바꿉니다(예전 저장본 포함).
  */
 export function statusLabel(item: { media: Media; completionStatus: string; releaseYear: string }): string {
   const c = item.completionStatus.trim();
@@ -132,5 +132,5 @@ export function statusLabel(item: { media: Media; completionStatus: string; rele
   return c;
 }
 
-/** 영화·드라마 감독·연출 표시. 비어 있으면 안내 문구를 씁니다. */
+/** 영화·시리즈 감독·연출 표시. 비어 있으면 안내 문구를 씁니다. */
 export const directorLabel = (creator: string): string => creator.replace(/^감독\s*/, "").trim() || "정보 없음";

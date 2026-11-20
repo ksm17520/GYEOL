@@ -15,7 +15,7 @@ const SCHEMA = {
     editorialSummary: { type: "STRING", description: "매체를 가로지르는 취향의 3문장 분석" },
     coreMoods: { type: "ARRAY", items: { type: "STRING" }, description: "핵심 분위기 키워드 4~5개" },
     narrativePreferences: { type: "ARRAY", items: { type: "STRING" }, description: "선호하는 서사 패턴 3개" },
-    crossMediaInsight: { type: "STRING", description: "책·영화·드라마·웹툰으로 이어지는 취향 인사이트" },
+    crossMediaInsight: { type: "STRING", description: "책·영화·시리즈·웹툰으로 이어지는 취향 인사이트" },
     nextDiscoveryPrompt: { type: "STRING", description: "다음 탐색을 위한 구체적인 큐레이션 요청 문장" },
   },
   required: ["personaTitle", "editorialSummary", "coreMoods", "narrativePreferences", "crossMediaInsight", "nextDiscoveryPrompt"],

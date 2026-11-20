@@ -171,7 +171,7 @@ export async function findWebtoonOfficial(title: string): Promise<WebtoonOfficia
   return null;
 }
 
-// TMDB 공식 API (무료 키 필요): 국내 영화·드라마까지 가장 폭넓게 찾습니다. TMDB_API_KEY가 없으면 건너뜁니다.
+// TMDB 공식 API (무료 키 필요): 국내 영화·시리즈까지 가장 폭넓게 찾습니다. TMDB_API_KEY가 없으면 건너뜁니다.
 async function tmdb(t: CoverTarget, kind: "film" | "drama"): Promise<string | null> {
   const key = process.env.TMDB_API_KEY;
   if (!key) return null;
@@ -198,7 +198,7 @@ async function tmdb(t: CoverTarget, kind: "film" | "drama"): Promise<string | nu
   return null;
 }
 
-// 네이버 검색 결과 페이지의 영화·드라마 포스터 (비공식, EXTENDED_SOURCES). 페이지 구조가 바뀌면 동작하지 않습니다.
+// 네이버 검색 결과 페이지의 영화·시리즈 포스터 (비공식, EXTENDED_SOURCES). 페이지 구조가 바뀌면 동작하지 않습니다.
 async function naverPoster(title: string, kind: "film" | "drama"): Promise<string | null> {
   try {
     const html = await getText(`https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(`${title} ${kind === "film" ? "영화" : "드라마"}`)}`, 3500);

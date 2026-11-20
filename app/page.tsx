@@ -228,9 +228,9 @@ export default function Home() {
       <main>
         <section className="wrap hero">
           <div>
-            <div className="kicker mono">CURATION &amp; ACCESS ARCHIVE · 책 · 영화 · 드라마 · 웹툰</div>
+            <div className="kicker mono">CURATION &amp; ACCESS ARCHIVE · 책 · 영화 · 시리즈 · 웹툰</div>
             <h1 className="font-editorial">지금의 기분과 인생작의 결로 만나는 네 가지 매체</h1>
-            <p>단순한 별점 순위가 아니라 당신이 놓인 상황과 마음의 온도를 읽고, 책·영화·드라마·웹툰을 연결합니다. 마음에 드는 작품은 서점, OTT, 웹툰 플랫폼으로 즉시 이동해 바로 감상할 수 있습니다.</p>
+            <p>단순한 별점 순위가 아니라 당신이 놓인 상황과 마음의 온도를 읽고, 책·영화·시리즈·웹툰을 연결합니다. 마음에 드는 작품은 서점, OTT, 웹툰 플랫폼으로 즉시 이동해 바로 감상할 수 있습니다.</p>
             <div className="hero-actions">
               <button className={`btn ${mode === "mood" ? "active" : ""}`} onClick={() => goPanel("mood")}>기분·상황 큐레이션</button>
               <button className={`btn ${mode === "crossover" ? "active" : ""}`} onClick={() => goPanel("crossover")}>인생작 크로스오버 매칭</button>

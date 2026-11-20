@@ -122,7 +122,7 @@ export function ruleBasedProfile(input: TasteInput): TasteProfile {
   const narrativePreferences = (top.length ? top.slice(0, 3) : []).map((m) => PATTERN[m]);
   const crossMediaInsight = missing.length
     ? `${MEDIA_LABEL[lead]}에서 확인된 결이 ${missing.map((m) => MEDIA_LABEL[m]).join("·")}에서는 아직 탐색되지 않았습니다. 같은 결을 다른 매체에서 만나 보세요.`
-    : `책·영화·드라마·웹툰 모두에서 취향 데이터가 있어, 매체를 넘나드는 결의 공통점을 비교해 볼 수 있습니다.`;
+    : `책·영화·시리즈·웹툰 모두에서 취향 데이터가 있어, 매체를 넘나드는 결의 공통점을 비교해 볼 수 있습니다.`;
   const target = missing[0] ?? ranked[ranked.length - 1];
   const nextDiscoveryPrompt = main
     ? `${josa(label(main), "이", "가")} 느껴지는 ${josa(MEDIA_LABEL[target], "을", "를")} 찾아줘`

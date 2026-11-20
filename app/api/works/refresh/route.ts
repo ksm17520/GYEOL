@@ -8,7 +8,7 @@ export const maxDuration = 30;
 
 const clip = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
 
-/** 보관함에 저장된 영화·드라마의 감독·출연진·분량·상영/방영 상태를 TMDB 정보로 다시 읽습니다. 못 찾으면 null. */
+/** 보관함에 저장된 영화·시리즈의 감독·출연진·분량·상영/방영 상태를 TMDB 정보로 다시 읽습니다. 못 찾으면 null. */
 export async function POST(req: Request) {
   if (rateLimited(req, "refresh", 20)) return NextResponse.json({ error: "요청이 너무 많아요.", code: "RATE" }, { status: 429 });
   let b: Record<string, unknown>;

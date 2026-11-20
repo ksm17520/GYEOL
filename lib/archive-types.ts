@@ -23,7 +23,7 @@ export type Bookmark = {
   rating: number; // 0 = 미평가, 1~5
   memo: string;
   verifiedAccess?: VerifiedAccess;
-  /** 영화·드라마의 감독·상태를 TMDB 정보로 마지막으로 갱신한 시각 */
+  /** 영화·시리즈의 감독·상태를 TMDB 정보로 마지막으로 갱신한 시각 */
   screenSyncedAt?: string;
   /** 갱신 규칙 버전. 규칙이 바뀌면 올려서 이미 갱신된 항목도 다시 갱신합니다. */
   screenSyncVer?: number;
