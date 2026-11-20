@@ -90,10 +90,14 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); ou
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
 .cover-box { aspect-ratio: 4 / 5; background: var(--cover-mat); padding: 20px 20px 12px; position: relative; display: flex; flex-direction: column; }
 .cover { flex: 1; border-radius: 4px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px; color: #fff; }
-.c-book { background: linear-gradient(160deg, #3B4A6B, #1F2A44); }
-.c-film { background: linear-gradient(160deg, #5A3A3A, #2A1B1B); }
-.c-drama { background: linear-gradient(160deg, #3B5A52, #1B2B27); }
-.c-webtoon { background: linear-gradient(160deg, #5A4F3A, #2B2519); }
+.c-book { --pillar: url(/images/pillar-book.jpg); }
+.c-film { --pillar: url(/images/pillar-film.jpg); }
+.c-drama { --pillar: url(/images/pillar-drama.jpg); }
+.c-webtoon { --pillar: url(/images/pillar-webtoon.jpg); }
+.cover { position: relative; overflow: hidden; background: #18181B; }
+.cover::before { content: ""; position: absolute; inset: 0; background: var(--pillar) center / cover no-repeat; opacity: .55; }
+.cover::after { content: ""; position: absolute; inset: 0; background: var(--tone, linear-gradient(160deg, #1E3A8A, #0F172A)); opacity: .85; }
+.cover > * { position: relative; z-index: 1; }
 .cover .t { font-size: 28px; line-height: 1.25; }
 .cover .c { margin-top: 12px; font-size: 13px; opacity: 0.8; }
 .stamp { position: absolute; top: 28px; left: 28px; color: rgba(255,255,255,.85); }
@@ -206,11 +210,11 @@ a.cta { display: inline-block; }
 .cover-box .cover-real { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: var(--cover-mat); }
 .cover-box .cover-real img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 2px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .cover-kicker { opacity: .75; margin-bottom: 12px; }
-.tone-lapis { background: linear-gradient(160deg, #1E3A8A, #0F172A); }
-.tone-forest { background: linear-gradient(160deg, #14532D, #0C1A13); }
-.tone-slate { background: linear-gradient(160deg, #3F3F46, #18181B); }
-.tone-bronze { background: linear-gradient(160deg, #78350F, #1C120C); }
-.tone-plum { background: linear-gradient(160deg, #581C87, #1B0B28); }
+.tone-lapis { --tone: linear-gradient(160deg, #1E3A8A, #0F172A); }
+.tone-forest { --tone: linear-gradient(160deg, #14532D, #0C1A13); }
+.tone-slate { --tone: linear-gradient(160deg, #3F3F46, #18181B); }
+.tone-bronze { --tone: linear-gradient(160deg, #78350F, #1C120C); }
+.tone-plum { --tone: linear-gradient(160deg, #581C87, #1B0B28); }
 .title-btn { background: none; border: 0; padding: 0; text-align: left; font: inherit; color: inherit; }
 .title-btn:hover { text-decoration: underline; text-underline-offset: 4px; }
 .linkchip { background: none; font: inherit; font-size: 12px; cursor: pointer; }
