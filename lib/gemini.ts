@@ -109,11 +109,12 @@ export async function generateJson(prompt: string, schema: unknown, timeoutMs = 
 }
 
 /** Google 검색을 근거로 한 텍스트 응답과 출처 링크를 받습니다. */
-/** 검색 근거(Google 검색) 호출용 모델. 무료 등급은 Gemini 3 계열의 검색 근거 한도가 0이라 2.5 계열을 씁니다. */
-const GROUNDING_MODELS: [string, string] = [process.env.GEMINI_GROUNDING_MODEL || "gemini-2.5-flash", process.env.GEMINI_GROUNDING_FALLBACK_MODEL || "gemini-2.5-flash-lite"];
-
 export async function generateGrounded(prompt: string, timeoutMs = 25000): Promise<{ text: string; sources: { title: string; uri: string }[] }> {
-  const r = await post({ contents: [{ parts: [{ text: prompt }] }], tools: [{ google_search: {} }] }, timeoutMs, GROUNDING_MODELS);
+  const r = await post({ contents: [{ parts: [{ text: prompt }] }], tools: [{ google_search: {} }] }, timeoutMs).catch((e) => {
+    // 무료 등급은 Gemini 3 계열의 검색 근거 한도가 0이라 429가 납니다(2.5 계열은 새 프로젝트에 제공되지 않음).
+    if (e instanceof AiError && e.status === 429) throw new AiError(429, "실시간 검색 확인은 구글 무료 등급에서는 한도가 없어 쓸 수 없을 수 있어요. 결제 연결 후 이용하거나 잠시 후 다시 시도해 주세요. (429)");
+    throw e;
+  });
   const seen = new Set<string>();
   const sources: { title: string; uri: string }[] = [];
   for (const c of r.candidates?.[0]?.groundingMetadata?.groundingChunks ?? []) {
