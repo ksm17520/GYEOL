@@ -416,7 +416,7 @@ function FilterPanel({ filters, setFilters }: { filters: Filters; setFilters: (f
   const hasFilm = filters.media.includes("film");
   const statusTitle = only === "webtoon" || only === "book" ? "연재 상태" : only === "drama" ? "방영 상태" : "연재·방영 상태";
   const ongoingLabel = only === "drama" ? "방영 중" : only === "webtoon" || only === "book" ? "연재 중" : "연재·방영 중";
-  const finishedLabel = only === "drama" ? "종영" : "완결";
+  const finishedLabel = only === "drama" ? "종영" : only === "webtoon" || only === "book" ? "완결" : "완결·종영";
   const togglePlatform = (id: string) =>
     setFilters({ ...filters, platforms: filters.platforms.includes(id) ? filters.platforms.filter((x) => x !== id) : [...filters.platforms, id] });
   const opt = <K extends "length" | "era">(key: K, value: Filters[K], label: string) => (

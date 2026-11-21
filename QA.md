@@ -334,6 +334,7 @@
 | 2026-11-21 | 3d18892 | ⚠️ 검증하지 못함 | 저장소에 package-lock.json이 없어 `npm ci` 불가, 네트워크 차단으로 `npm install`도 불가. 3ab2f4a는 Vercel 빌드 Ready, 실사이트에서 영화·드라마 표시 확인 |
 | 2026-11-21 | 5b7ac86 | ⚠️ 검증하지 못함 | package-lock.json이 없어 `npm ci` 불가, 네트워크 차단으로 `tsc`·`build` 못 돌림. 오프라인 격리 `tsc --strict`와 모의 예스24 테스트는 통과. Vercel 배포 결과 확인 필요 |
 | 2026-11-21 | 66d6968 | ⚠️ 검증하지 못함 | package-lock.json이 없어 `npm ci` 불가(`EUSAGE`), `tsc`·`build` 못 돌림. 연재·방영 상태 필터 아이콘 삭제(글자만 변경). Vercel 배포 결과 확인 필요 |
+| 2026-11-21 | (이번 커밋) | ⚠️ 검증하지 못함 | package-lock.json이 없어 `npm ci` 불가(`EUSAGE`), `tsc`·`build` 못 돌림. 여러 매체 선택 시 완결 칩을 `완결·종영`으로 표시(글자만 변경). Vercel 배포 결과 확인 필요 |
 
 ---
 
