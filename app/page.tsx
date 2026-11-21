@@ -436,9 +436,9 @@ function FilterPanel({ filters, setFilters }: { filters: Filters; setFilters: (f
           {opt("length", "all", "전체 분량")}{opt("length", "light", "가볍게 (단편/영화)")}{opt("length", "mid", "적당한 호흡")}{opt("length", "long", "긴 호흡 (장편/시리즈)")}
         </div></div>
         <div><h4>{statusTitle}</h4><div className="stack">
-          <button className={`chip ${!filters.finishedOnly && !filters.ongoingOnly ? "on" : ""}`} disabled={filmOnly} onClick={() => setFilters({ ...filters, finishedOnly: false, ongoingOnly: false })}><span aria-hidden="true">◎ </span>전체</button>
-          <button className={`chip ${filters.ongoingOnly ? "on" : ""}`} disabled={filmOnly} aria-pressed={filters.ongoingOnly} onClick={() => setFilters({ ...filters, finishedOnly: false, ongoingOnly: true })}><span aria-hidden="true">● </span>{ongoingLabel}</button>
-          <button className={`chip ${filters.finishedOnly ? "on" : ""}`} disabled={filmOnly} aria-pressed={filters.finishedOnly} onClick={() => setFilters({ ...filters, finishedOnly: true, ongoingOnly: false })}><span aria-hidden="true">✓ </span>{finishedLabel}</button>
+          <button className={`chip ${!filters.finishedOnly && !filters.ongoingOnly ? "on" : ""}`} disabled={filmOnly} onClick={() => setFilters({ ...filters, finishedOnly: false, ongoingOnly: false })}>전체</button>
+          <button className={`chip ${filters.ongoingOnly ? "on" : ""}`} disabled={filmOnly} aria-pressed={filters.ongoingOnly} onClick={() => setFilters({ ...filters, finishedOnly: false, ongoingOnly: true })}>{ongoingLabel}</button>
+          <button className={`chip ${filters.finishedOnly ? "on" : ""}`} disabled={filmOnly} aria-pressed={filters.finishedOnly} onClick={() => setFilters({ ...filters, finishedOnly: true, ongoingOnly: false })}>{finishedLabel}</button>
           {(filmOnly || hasFilm) && <p className="hint">{filmOnly ? "영화는 연재·완결 개념이 없어 선택할 수 없어요." : "영화에는 적용되지 않고, 책·웹툰·시리즈에만 적용돼요."}</p>}
         </div></div>
         <div><h4>제작·출간 시기</h4><div className="stack">
