@@ -28,7 +28,7 @@ type Ctx = ArchiveStore & {
   removeHistory: (id: string) => void;
   setTasteProfile: (p: TasteProfile | null) => void;
   /** 보관함의 영화·시리즈 감독·출연진·분량·상영/방영 상태를 TMDB 정보로 갱신합니다(12시간에 한 번). */
-  syncArchive: () => Promise<void>;
+  syncArchive: () => Promise<string[]>;
   exportJson: () => string;
   importJson: (raw: string) => { ok: boolean; error?: string };
 };
@@ -131,16 +131,18 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
    * 보관함 반영 규칙: 보관함을 열 때마다 저장된 모든 작품(책·영화·시리즈·웹툰)을 최신 정보로 다시 읽어 바뀐 내용을 그대로 반영합니다.
    * - 같은 작품을 10분 안에 다시 읽지는 않습니다(호출량). 단, 아래 ARCHIVE_SYNC_VER가 바뀌면 모든 작품을 한 번 다시 읽습니다.
    * - 새 정보를 찾으면 비어 있지 않은 값으로 덮어쓰고, 못 찾은 작품은 저장된 값을 그대로 둡니다(일시 오류 포함).
+   * - 예스24에서 찾을 수 없는 책(예스24 출처가 확인된 적 없는 저장본만)은 보관함에서 삭제합니다. 검색 오류로 판단이 어려우면 삭제하지 않습니다.
    * - 표지는 이번에 찾지 못했고 규칙 버전이 바뀐 경우에만 지웁니다(제목이 비슷한 다른 작품의 표지가 남는 것을 막기 위해).
    * 제목 매칭·표기·출처 규칙을 바꾸면 ARCHIVE_SYNC_VER를 올립니다.
    */
-  const ARCHIVE_SYNC_VER = 4; // 2: 인물·극중 이름 한글화, 3: 한글 제목 조회·원제 저장, 4: 전 매체 갱신·표지 제목/저자 일치
+  const ARCHIVE_SYNC_VER = 5; // 2: 인물·극중 이름 한글화, 3: 한글 제목 조회·원제 저장, 4: 전 매체 갱신·표지 제목/저자 일치, 5: 예스24에 없는 책 삭제·잘못된 표지 정리
   const ARCHIVE_STALE_MS = 10 * 60 * 1000;
-  type Patch = { originalTitle?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string; releaseYear?: string; sourceUrl?: string; coverImageUrl?: string };
-  const syncArchive = useCallback(async () => {
-    if (syncing.current) return;
+  type Patch = { gone?: boolean; originalTitle?: string; creator: string; cast: string[]; characters: string[]; lengthInfo: string; completionStatus: string; releaseYear?: string; sourceUrl?: string; coverImageUrl?: string };
+  const syncArchive = useCallback(async (): Promise<string[]> => {
+    const removed: string[] = [];
+    if (syncing.current) return removed;
     const targets = storeRef.current.bookmarks.filter((b) => !(b.syncVer === ARCHIVE_SYNC_VER && b.syncedAt && Date.now() - Date.parse(b.syncedAt) < ARCHIVE_STALE_MS));
-    if (targets.length === 0) return;
+    if (targets.length === 0) return removed;
     syncing.current = true;
     try {
       for (let i = 0; i < targets.length; i += 10) {
@@ -161,9 +163,11 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
           } catch { return undefined; }
         }));
         const stamp = new Date().toISOString();
+        const goneKeys = new Set(chunk.filter((b, idx) => b.item.media === "book" && results[idx]?.gone === true && !b.item.sourceUrl).map((b) => b.key));
+        chunk.forEach((b) => { if (goneKeys.has(b.key)) removed.push(b.item.title); });
         setStore((p) => ({
           ...p,
-          bookmarks: p.bookmarks.map((b) => {
+          bookmarks: p.bookmarks.filter((b) => !goneKeys.has(b.key)).map((b) => {
             const idx = chunk.findIndex((c) => c.key === b.key);
             if (idx < 0) return b;
             const it = b.item, r = results[idx], c = covers[idx];
@@ -177,6 +181,7 @@ export function ArchiveProvider({ children }: { children: ReactNode }) {
         }));
       }
     } finally { syncing.current = false; }
+    return removed;
   }, []);
 
   const removeBookmark = useCallback((key: string) => {

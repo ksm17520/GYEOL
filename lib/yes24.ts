@@ -30,16 +30,19 @@ export type BookCandidate = {
   link: string;
 };
 
-async function search(query: string, sort: "RELATION" | "RECENT" | "DEFAULT", pageSize: number, ms = 4500): Promise<RawItem[]> {
+/** 검색 결과(없으면 빈 목록). 네트워크·인증·호출 한도 오류처럼 "없다"고 단정할 수 없을 때는 null. */
+async function search(query: string, sort: "RELATION" | "RECENT" | "DEFAULT", pageSize: number, ms = 4500): Promise<RawItem[] | null> {
   const k = key();
-  if (!k || !query.trim()) return [];
+  if (!k || !query.trim()) return null;
   try {
     const qs = new URLSearchParams({ query, category: "BOOK", sort, page: "1", pageSize: String(pageSize), detail: "Y" });
     const res = await fetch(`${BASE}/goods/itemList?${qs}`, { headers: { "X-Api-Key": k, "User-Agent": "GyeolArchive/1.0" }, signal: AbortSignal.timeout(ms) });
-    if (!res.ok) return [];
+    if (res.status === 404) return []; // 검색 결과 없음
+    if (!res.ok) return null;
     const d = (await res.json()) as { success?: boolean; data?: { items?: RawItem[] } };
-    return d.success === false || !Array.isArray(d.data?.items) ? [] : (d.data?.items as RawItem[]);
-  } catch { return []; }
+    if (d.success === false) return null;
+    return Array.isArray(d.data?.items) ? (d.data?.items as RawItem[]) : [];
+  } catch { return null; }
 }
 
 /** 예스24 저자 표기("톤 텔레헨 저/정유정 역/김고둥", "윤해 글/별사탕")에서 지은이만 앞의 두 명까지 남깁니다. */
@@ -111,7 +114,7 @@ export async function gatherBookCandidates(context: string, opts: { era?: "all" 
   const lists = await Promise.all([
     ...queries.map((q) => search(q, "RELATION", 20)),
     ...queries.slice(0, 2).map((q) => search(q, "RECENT", 15)),
-  ]);
+  ]).then((all) => all.map((l) => l ?? []));
   const thisYear = new Date().getFullYear();
   const eraOk = (y: string) => {
     const n = Number(y);
@@ -136,7 +139,7 @@ export async function gatherBookCandidates(context: string, opts: { era?: "all" 
 /** 표지 조회용: 제목이 같은(부제·시즌 표기 제외) 책의 표지만 돌려줍니다. 저자가 있으면 저자도 겹쳐야 합니다. */
 export async function yes24Cover(title: string, author: string): Promise<string | null> {
   if (!key()) return null;
-  const items = await search(title, "RELATION", 10);
+  const items = (await search(title, "RELATION", 10)) ?? [];
   const wantAuthor = author.replace(/\s+/g, "");
   for (const x of items) {
     const c = toCandidate(x);
@@ -146,15 +149,19 @@ export async function yes24Cover(title: string, author: string): Promise<string 
   return null;
 }
 
-/** 보관함 갱신용: 제목이 같고(저자가 있으면 저자도 겹치는) 책 한 권의 최신 정보를 예스24에서 읽습니다. 못 찾으면 null. */
-export async function findBook(title: string, author: string): Promise<BookCandidate | null> {
-  if (!key()) return null;
+/**
+ * 보관함 갱신용: 제목이 같고(저자가 있으면 저자도 겹치는) 책 한 권의 최신 정보를 예스24에서 읽습니다.
+ * status: ok=찾음, none=예스24에 없음(검색은 정상), error=오류라 판단 보류, no-key=키 없음.
+ */
+export async function findBook(title: string, author: string): Promise<{ book: BookCandidate | null; status: "ok" | "none" | "error" | "no-key" }> {
+  if (!key()) return { book: null, status: "no-key" };
   const items = await search(title, "RELATION", 10);
+  if (items === null) return { book: null, status: "error" };
   const wantAuthor = author.replace(/\s+/g, "");
   for (const x of items) {
     const c = toCandidate(x);
     if (!c || !sameTitle(mainTitle(c.title), title)) continue;
-    if (!wantAuthor || c.author.split(",").some((a) => a.replace(/\s+/g, "") && wantAuthor.includes(a.replace(/\s+/g, "")))) return { id: "", ...c };
+    if (!wantAuthor || c.author.split(",").some((a) => a.replace(/\s+/g, "") && wantAuthor.includes(a.replace(/\s+/g, "")))) return { book: { id: "", ...c }, status: "ok" };
   }
-  return null;
+  return { book: null, status: "none" };
 }

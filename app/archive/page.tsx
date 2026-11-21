@@ -29,7 +29,10 @@ export default function ArchivePage() {
 
   // 보관함을 열 때마다 모든 작품(책·영화·시리즈·웹툰)을 최신 정보로 갱신합니다(규칙: providers.tsx의 syncArchive).
   const { ready, syncArchive } = a;
-  useEffect(() => { if (ready) void syncArchive(); }, [ready, syncArchive]);
+  useEffect(() => {
+    if (!ready) return;
+    void syncArchive().then((removed) => { if (removed.length) setMessage(`예스24에서 찾을 수 없는 책 ${removed.length}권을 보관함에서 삭제했어요: ${removed.slice(0, 5).join(", ")}${removed.length > 5 ? " 외" : ""}`); });
+  }, [ready, syncArchive]);
 
   const items = a.bookmarks.filter((b) => (status === "all" || b.status === status) && (media === "all" || b.item.media === media));
 

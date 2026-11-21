@@ -11,7 +11,7 @@ export const maxDuration = 30;
 const clip = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
 
 /** 보관함 갱신 결과(매체 공통). 못 찾은 항목은 null이고, 값이 빈 필드는 저장된 값을 그대로 둡니다. */
-type Refreshed = ScreenDetails & { releaseYear?: string; sourceUrl?: string };
+type Refreshed = ScreenDetails & { releaseYear?: string; sourceUrl?: string; /** 예스24에 없는 책(검색은 정상이었음) — 보관함에서 지웁니다 */ gone?: boolean };
 
 /**
  * 보관함에 저장된 작품을 최신 정보로 다시 읽습니다(보관함을 열 때마다 호출).
@@ -28,8 +28,9 @@ export async function POST(req: Request) {
     const title = clip(o.title, 100);
     if (!title) return null;
     if (o.media === "book") {
-      const b = await findBook(title, clip(o.creator, 100));
-      matches[n] = b ? `book ${b.title}` : "book none";
+      const { book: b, status } = await findBook(title, clip(o.creator, 100));
+      matches[n] = b ? `book ${b.title}` : `book ${status}`;
+      if (status === "none") return { creator: "", cast: [], characters: [], lengthInfo: "", completionStatus: "", gone: true };
       return b ? { creator: b.author, cast: [], characters: [], lengthInfo: b.pages ? `${b.pages}쪽` : "", completionStatus: "", releaseYear: b.year, sourceUrl: b.link, coverImageUrl: b.coverImageUrl ? `/api/cover-proxy?url=${encodeURIComponent(b.coverImageUrl)}` : undefined } : null;
     }
     if (o.media === "webtoon") {
