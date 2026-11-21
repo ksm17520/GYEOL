@@ -332,6 +332,7 @@
 | 2026-11-21 | fada85d | ⚠️ 검증하지 못함 | 로컬 `npm install` 네트워크 차단. Vercel 빌드 Ready, 영화 갱신 API 응답 정상 |
 | 2026-11-21 | c7211f8 | ⚠️ 검증하지 못함 | `npm install` 네트워크 차단(package-lock.json도 없음)으로 `tsc`·`build` 못 돌림. Vercel 빌드 Ready, 실사이트 보관함 확인 |
 | 2026-11-21 | 3d18892 | ⚠️ 검증하지 못함 | 저장소에 package-lock.json이 없어 `npm ci` 불가, 네트워크 차단으로 `npm install`도 불가. 3ab2f4a는 Vercel 빌드 Ready, 실사이트에서 영화·드라마 표시 확인 |
+| 2026-11-21 | 5b7ac86 | ⚠️ 검증하지 못함 | package-lock.json이 없어 `npm ci` 불가, 네트워크 차단으로 `tsc`·`build` 못 돌림. 오프라인 격리 `tsc --strict`와 모의 예스24 테스트는 통과. Vercel 배포 결과 확인 필요 |
 
 ---
 
